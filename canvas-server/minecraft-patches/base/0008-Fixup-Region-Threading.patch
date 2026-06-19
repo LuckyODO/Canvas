@@ -44,7 +44,7 @@ index e9ca1a15049b0211d10401cb78e953b93afaf6c7..88067a935b2de9c4763e5f8e3752e543
                  if (tick.handle instanceof TickRegions.ConcreteRegionTickHandle region) {
                      LOGGER.error(
 diff --git a/io/papermc/paper/threadedregions/RegionShutdownThread.java b/io/papermc/paper/threadedregions/RegionShutdownThread.java
-index 0ce4643d526368b85ead19dd5d63aa41ec41afc6..75b88ab017cadb3ff942df86760c2e2e74d77b5a 100644
+index 0ce4643d526368b85ead19dd5d63aa41ec41afc6..11610b628bbf328fef39b4bfe1f8f522730a16e6 100644
 --- a/io/papermc/paper/threadedregions/RegionShutdownThread.java
 +++ b/io/papermc/paper/threadedregions/RegionShutdownThread.java
 @@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit;
@@ -88,7 +88,7 @@ index 0ce4643d526368b85ead19dd5d63aa41ec41afc6..75b88ab017cadb3ff942df86760c2e2e
      }
  
      public void saveRegionChunks(final ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData> region,
-@@ -148,9 +150,76 @@ public class RegionShutdownThread extends ca.spottedleaf.moonrise.common.util.Ti
+@@ -148,9 +150,110 @@ public class RegionShutdownThread extends ca.spottedleaf.moonrise.common.util.Ti
              this.shuttingDown = null;
          }
      }
@@ -115,29 +115,63 @@ index 0ce4643d526368b85ead19dd5d63aa41ec41afc6..75b88ab017cadb3ff942df86760c2e2e
 +        }
 +
 +        // save pearls
-+        for (final ServerLevel level : MinecraftServer.getServer().getAllLevels()) {
-+            final List<ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData>>
-+                regions = new ArrayList<>();
-+            level.regioniser.computeForAllRegionsUnsynchronised(regions::add);
++        final org.apache.commons.lang3.mutable.MutableInt savedPearlCount = new org.apache.commons.lang3.mutable.MutableInt(0);
++        final java.util.Map<ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData>, List<com.mojang.datafixers.util.Pair<java.util.UUID, net.minecraft.world.entity.projectile.throwableitemprojectile.ThrownEnderpearl>>>
++            region2Pearls = com.google.common.collect.Maps.newHashMap();
++        final boolean removeDuplicatePearl = io.canvasmc.canvas.GlobalConfiguration.getInstance().vanillaFixes.pearlDuplication;
 +
-+            for (int i = 0, len = regions.size(); i < len; ++i) {
-+                io.papermc.paper.threadedregions.ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData>
-+                    region = regions.get(i);
-+                ChunkPos center = null;
-+                try {
-+                    this.shuttingDown = region;
-+                    center = region.getCenterChunk();
-+                    final RegionizedWorldData worldData = region.regioniser.world.worldRegionData.get();
-+                    for (final ServerPlayer localPlayer : worldData.getLocalPlayers()) {
-+                        // if pearl duplication fix is enabled, remove the pearl
-+                        localPlayer.savePearls(io.canvasmc.canvas.GlobalConfiguration.getInstance().vanillaFixes.pearlDuplication);
-+                    }
-+                } catch (Throwable thrown) {
-+                    LOGGER.error("Failed to save pearls for region around chunk " + center + " in level '" + region.regioniser.world.getWorld().getName() + "'", thrown);
-+                } finally {
-+                    this.shuttingDown = null;
++        for (final ServerPlayer entityPlayer : MinecraftServer.getServer().getPlayerList().players) {
++            final java.util.UUID uuid = entityPlayer.getUUID();
++            final java.util.Set<net.minecraft.world.entity.projectile.throwableitemprojectile.ThrownEnderpearl> toSave = entityPlayer.getEnderPearls();
++
++            // we have to save manually like this since technically pearls
++            // can be anywhere in the world during shutdown, including out of
++            // the region of the existing player(stasis chambers for example).
++
++            // because of that, we need to collect all pearls and make sure we
++            // save them all with the proper region set
++
++            for (final net.minecraft.world.entity.projectile.throwableitemprojectile.ThrownEnderpearl thrownEnderpearl : toSave) {
++                if (thrownEnderpearl.level().paperConfig().misc.legacyEnderPearlBehavior) continue;
++
++                final int chunkX = thrownEnderpearl.getBlockX() >> 4;
++                final int chunkZ = thrownEnderpearl.getBlockZ() >> 4;
++                final ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData>
++                    regionAtChunk = entityPlayer.level().regioniser.getRegionAtUnsynchronised(chunkX, chunkZ);
++                if (regionAtChunk == null) {
++                    // if region isn't loaded, skip
++                    continue;
 +                }
++
++                region2Pearls.computeIfAbsent(
++                    regionAtChunk,
++                    (_) -> new ArrayList<>()
++                ).add(new com.mojang.datafixers.util.Pair<>(uuid, thrownEnderpearl));
 +            }
++        }
++
++        region2Pearls.forEach((region, listOfPearls) -> {
++            ChunkPos center = null;
++            try {
++                this.shuttingDown = region;
++                center = region.getCenterChunk();
++                for (final com.mojang.datafixers.util.Pair<java.util.UUID, net.minecraft.world.entity.projectile.throwableitemprojectile.ThrownEnderpearl> pair : listOfPearls) {
++                    MinecraftServer.getServer().pearls.addPearl(pair.getFirst(), pair.getSecond());
++                    if (removeDuplicatePearl) {
++                        pair.getSecond().setRemoved(Entity.RemovalReason.UNLOADED_WITH_PLAYER, org.bukkit.event.entity.EntityRemoveEvent.Cause.PLAYER_QUIT);
++                    }
++                    savedPearlCount.increment();
++                }
++            } catch (Throwable thrown) {
++                LOGGER.error("Failed to save pearls for region around chunk " + center + " in level '" + region.regioniser.world.getWorld().getName() + "'", thrown);
++            } finally {
++                this.shuttingDown = null;
++            }
++        });
++
++        final int total = savedPearlCount.intValue();
++        if (total > 0) {
++            LOGGER.info("Saved {} in-flight pearl{}", total, total > 1 ? "s" : "");
 +        }
 +
 +        // now, remove players and wait
@@ -165,7 +199,7 @@ index 0ce4643d526368b85ead19dd5d63aa41ec41afc6..75b88ab017cadb3ff942df86760c2e2e
          // await scheduler termination
          LOGGER.info("Awaiting scheduler termination for 60s...");
          if (TickRegions.getScheduler().halt(true, TimeUnit.SECONDS.toNanos(60L))) {
-@@ -161,6 +230,11 @@ public class RegionShutdownThread extends ca.spottedleaf.moonrise.common.util.Ti
+@@ -161,6 +264,11 @@ public class RegionShutdownThread extends ca.spottedleaf.moonrise.common.util.Ti
          }
  
          MinecraftServer.getServer().stopServer(); // stop part 1: most logic, kicking players, plugins, etc
@@ -1256,18 +1290,24 @@ index 8d4f092ec65d285508be81cbfadd6e747e1d067e..2db474ced22d5867b0f6315185af31d3
  
      public static ServerPlayer getPlayer(final String name) {
 diff --git a/net/minecraft/commands/Commands.java b/net/minecraft/commands/Commands.java
-index aa3e2b7aca2163c61de949519f332cd1dba5920a..434563cf7958aa4fec624293968d1236cb351c2e 100644
+index aa3e2b7aca2163c61de949519f332cd1dba5920a..a4d799f297f9178a83b639b2a9d4b9d98d84b2ad 100644
 --- a/net/minecraft/commands/Commands.java
 +++ b/net/minecraft/commands/Commands.java
-@@ -195,7 +195,7 @@ public class Commands {
+@@ -195,11 +195,11 @@ public class Commands {
          AdvancementCommands.register(this.dispatcher);
          AttributeCommand.register(this.dispatcher, context);
          ExecuteCommand.register(this.dispatcher, context);
 -        //BossBarCommands.register(this.dispatcher, context); // Folia - region threading - TODO
 +        BossBarCommands.register(this.dispatcher, context);
          ClearInventoryCommands.register(this.dispatcher, context);
-         //CloneCommands.register(this.dispatcher, context); // Folia - region threading - TODO
+-        //CloneCommands.register(this.dispatcher, context); // Folia - region threading - TODO
++        CloneCommands.register(this.dispatcher, context);
          DamageCommand.register(this.dispatcher, context);
+-        //DataCommands.register(this.dispatcher); // Folia - region threading - TODO
++        DataCommands.register(this.dispatcher);
+         //DataPackCommand.register(this.dispatcher, context); // Folia - region threading - TODO
+         //DebugCommand.register(this.dispatcher); // Folia - region threading - TODO
+         DefaultGameModeCommands.register(this.dispatcher);
 @@ -222,7 +222,7 @@ public class Commands {
          KillCommand.register(this.dispatcher);
          ListPlayersCommand.register(this.dispatcher);
@@ -1538,8 +1578,21 @@ index 54a377f147edb24b88f72fcb0a45d337d818b128..9c13c02cf60ed472b91e269bf57015a6
              count++;
              // Paper end - Expand PlayerGameModeChangeEvent
          }
+diff --git a/net/minecraft/server/ReloadableServerResources.java b/net/minecraft/server/ReloadableServerResources.java
+index f2b8a9d404e98379f648dcbff2ceff7fdcf4b875..dd91c03248b6e68d0cef2f3fe279e5c59da15c7f 100644
+--- a/net/minecraft/server/ReloadableServerResources.java
++++ b/net/minecraft/server/ReloadableServerResources.java
+@@ -72,7 +72,7 @@ public class ReloadableServerResources {
+     }
+ 
+     public List<PreparableReloadListener> listeners() {
+-        return List.of(this.recipes, this.functionLibrary, this.advancements);
++        return List.of(this.recipes, this.advancements); // Canvas - region threading
+     }
+ 
+     public static CompletableFuture<ReloadableServerResources> loadResources(
 diff --git a/net/minecraft/server/ServerScoreboard.java b/net/minecraft/server/ServerScoreboard.java
-index 9bf09b888425e491072864265c8de3885154a0ba..7cb6d183be1a04c4f59b2d335fc706c1645deb9f 100644
+index 9bf09b888425e491072864265c8de3885154a0ba..24e0004e824f96b9688f408dc2297df66a0c79bb 100644
 --- a/net/minecraft/server/ServerScoreboard.java
 +++ b/net/minecraft/server/ServerScoreboard.java
 @@ -26,24 +26,45 @@ import org.jspecify.annotations.Nullable;
@@ -1624,31 +1677,33 @@ index 9bf09b888425e491072864265c8de3885154a0ba..7cb6d183be1a04c4f59b2d335fc706c1
          super.onObjectiveRemoved(objective);
          if (this.trackedObjectives.contains(objective)) {
              this.stopTrackingObjective(objective);
-@@ -189,6 +214,7 @@ public class ServerScoreboard extends Scoreboard {
+@@ -189,6 +214,8 @@ public class ServerScoreboard extends Scoreboard {
  
      @Override
      public void onTeamAdded(final PlayerTeam team) {
 +        ensureMainThread("Cannot add player team async"); // Canvas - region threading
++        team.registerCallback(); // Canvas - region threading
          super.onTeamAdded(team);
          this.broadcastAll(ClientboundSetPlayerTeamPacket.createAddOrModifyPacket(team, true)); // CraftBukkit
          this.setDirty();
-@@ -196,6 +222,7 @@ public class ServerScoreboard extends Scoreboard {
+@@ -196,6 +223,7 @@ public class ServerScoreboard extends Scoreboard {
  
      @Override
      public void onTeamChanged(final PlayerTeam team) {
-+        ensureMainThread("Cannot change player team async"); // Canvas - region threading
++        team.ensureMainThread("Cannot change player team async"); // Canvas - region threading
          super.onTeamChanged(team);
          this.broadcastAll(ClientboundSetPlayerTeamPacket.createAddOrModifyPacket(team, false)); // CraftBukkit
          this.updateTeamWaypoints(team);
-@@ -204,6 +231,7 @@ public class ServerScoreboard extends Scoreboard {
+@@ -204,6 +232,8 @@ public class ServerScoreboard extends Scoreboard {
  
      @Override
      public void onTeamRemoved(final PlayerTeam team) {
 +        ensureMainThread("Cannot remove player team async"); // Canvas - region threading
++        team.unregisterCallback(); // Canvas - region threading
          super.onTeamRemoved(team);
          this.broadcastAll(ClientboundSetPlayerTeamPacket.createRemovePacket(team)); // CraftBukkit
          this.updateTeamWaypoints(team);
-@@ -211,12 +239,14 @@ public class ServerScoreboard extends Scoreboard {
+@@ -211,12 +241,14 @@ public class ServerScoreboard extends Scoreboard {
      }
  
      protected void setDirty() {
@@ -1666,7 +1721,7 @@ index 9bf09b888425e491072864265c8de3885154a0ba..7cb6d183be1a04c4f59b2d335fc706c1
              saveData.setData(this.store());
          }
      }
-@@ -269,6 +299,7 @@ public class ServerScoreboard extends Scoreboard {
+@@ -269,6 +301,7 @@ public class ServerScoreboard extends Scoreboard {
      }
  
      public void stopTrackingObjective(final Objective objective) {
@@ -1674,7 +1729,7 @@ index 9bf09b888425e491072864265c8de3885154a0ba..7cb6d183be1a04c4f59b2d335fc706c1
          List<Packet<?>> packets = this.getStopTrackingPackets(objective);
  
          for (ServerPlayer player : this.server.getPlayerList().getPlayers()) {
-@@ -293,19 +324,23 @@ public class ServerScoreboard extends Scoreboard {
+@@ -293,19 +326,23 @@ public class ServerScoreboard extends Scoreboard {
          return count;
      }
  
@@ -1742,6 +1797,250 @@ index fb55ed68a1f8470b551030a27ca2656555c93d9e..5756f7aca1a80782a88b0e82ef82a626
  
      public @Nullable CustomBossEvent get(final Identifier id) {
          return this.events.get(id);
+diff --git a/net/minecraft/server/commands/CloneCommands.java b/net/minecraft/server/commands/CloneCommands.java
+index 50d671bc5a8860883239590c030881043c791ca1..92f1416b3994e7f1334bdf41f8c00f619288e92d 100644
+--- a/net/minecraft/server/commands/CloneCommands.java
++++ b/net/minecraft/server/commands/CloneCommands.java
+@@ -163,6 +163,70 @@ public class CloneCommands {
+                     )
+             );
+     }
++    // Canvas start - region threading
++
++    private record BlockInfo(
++        // note: if blockEntityInfo != null, we should set the block entity data
++        BlockPos pos, BlockState state, CloneCommands.@Nullable CloneBlockEntityInfo blockEntityInfo, BlockPos offset
++    ) {
++        BlockPos destinationPos() {
++            return pos.offset(offset);
++        }
++    }
++
++    private static class Area {
++        // in Vanilla, this would be "clearBlockList"
++        final Deque<net.minecraft.core.BlockPos> allPositions = Lists.newLinkedList();
++        final List<BlockInfo> collectedStates = new it.unimi.dsi.fastutil.objects.ObjectArrayList<>();
++        final org.apache.commons.lang3.mutable.MutableBoolean hasBlockEntities = new org.apache.commons.lang3.mutable.MutableBoolean(false);
++
++        void collect(
++            final BlockPos pos,
++            final BlockPos offset,
++            final BlockInWorld block,
++            final ServerLevel level,
++            final Predicate<BlockInWorld> predicate,
++            final ProblemReporter reporter,
++            final net.minecraft.core.HolderLookup.Provider registryAccess
++        ) {
++            if (!predicate.test(block)) {
++                return;
++            }
++
++            boolean last;
++
++            final BlockEntity blockEntity = level.getBlockEntity(pos);
++            final BlockState blockState = block.getState();
++
++            if (blockEntity != null) {
++                TagValueOutput output = TagValueOutput.createWithContext(reporter.forChild(blockEntity.problemPath()), registryAccess);
++                blockEntity.saveCustomOnly(output);
++                CloneCommands.CloneBlockEntityInfo blockEntityInfo = new CloneCommands.CloneBlockEntityInfo(
++                    output.buildResult(), blockEntity.components()
++                );
++                collectedStates.add(new CloneCommands.BlockInfo(pos, blockState, blockEntityInfo, offset));
++                hasBlockEntities.setTrue();
++                last = true;
++            }
++            else {
++                collectedStates.add(new CloneCommands.BlockInfo(pos, blockState, null, offset));
++                last = !(!blockState.isSolidRender() && !blockState.isCollisionShapeFullBlock(level, pos));
++            }
++
++            // add to our list of blocks
++            if (last) {
++                allPositions.addLast(pos);
++            }
++            else {
++                allPositions.addFirst(pos);
++            }
++        }
++
++        List<BlockInfo> reversed() {
++            return this.collectedStates.reversed();
++        }
++    }
++    // Canvas end - region threading
+ 
+     private static int clone(
+         final CommandSourceStack source,
+@@ -199,6 +263,168 @@ public class CloneCommands {
+             throw ERROR_FAILED.create();
+         }
+ 
++        // Canvas start - region threading
++        if (true) {
++
++            // we use a snapshot copy-paste style thing, since we can't just directly
++            // clone it over since we may not even be in the correct region for either of these
++
++            // we need to schedule to "from" first to collect our snapshot
++
++            fromDimension.canvas$loadOrRunAtChunksAsync(
++                // min/max x, min/max z
++                from.minX() >> 4, from.maxX() >> 4, from.minZ() >> 4, from.maxZ() >> 4,
++                ca.spottedleaf.concurrentutil.util.Priority.NORMAL, () -> {
++
++                    // we need to collect the blocks in this area now and copy-paste
++
++                    final Area snapshot = new CloneCommands.Area();
++                    final net.minecraft.world.ticks.LevelTicks<Block> fromBlockTicks = fromDimension.getBlockTicks();
++                    final BlockPos offset = new BlockPos(destination.minX() - from.minX(), destination.minY() - from.minY(), destination.minZ() - from.minZ());
++
++                    try (final ProblemReporter.ScopedCollector problemReporter = new ProblemReporter.ScopedCollector(LOGGER)) {
++
++                        // note: for merging block ticks, we need can follow this similar to how Folia does
++                        //       merging of these for region merges. the Vanilla version seems to update lists
++                        //       that are actually transient, only used during the tick, so we don't actually
++                        //       need to do anything about those, which simplifies this logic greatly
++
++                        // copy ticks first, based from LevelTicks#copyAreaFrom
++
++                        List<net.minecraft.world.ticks.ScheduledTick<Block>> ticksToAdd = new java.util.ArrayList<>();
++                        Predicate<net.minecraft.world.ticks.ScheduledTick<Block>> tickInsideBB = t -> from.isInside(t.pos());
++                        fromBlockTicks.alreadyRunThisTick.stream().filter(tickInsideBB).forEach(ticksToAdd::add);
++                        fromBlockTicks.toRunThisTick.stream().filter(tickInsideBB).forEach(ticksToAdd::add);
++                        fromBlockTicks.forContainersInArea(from, (_, container) -> container.getAll().filter(tickInsideBB).forEach(ticksToAdd::add));
++                        java.util.LongSummaryStatistics info = ticksToAdd.stream().mapToLong(net.minecraft.world.ticks.ScheduledTick::subTickOrder).summaryStatistics();
++                        long minSubTick = info.getMin();
++                        long maxSubTick = info.getMax();
++
++                        final net.minecraft.core.BlockPos.MutableBlockPos sourcePos = new net.minecraft.core.BlockPos.MutableBlockPos();
++
++                        for (int z = from.minZ(); z <= from.maxZ(); z++) {
++                            for (int y = from.minY(); y <= from.maxY(); y++) {
++                                for (int x = from.minX(); x <= from.maxX(); x++) {
++                                    sourcePos.set(x, y, z);
++                                    BlockInWorld block = new BlockInWorld(fromDimension, sourcePos, false);
++                                    snapshot.collect(sourcePos.immutable(), offset, block, fromDimension, predicate, problemReporter, source.registryAccess());
++                                }
++                            }
++                        }
++
++                        // now that we have collected everything, we need to try to set things in the source
++                        // before we move to the destination
++
++                        // note: clearBlockList is basically just a list of all the blocks we collected that
++                        //       at least passed the predicate
++
++                        int defaultUpdateFlags = 2 | (strict ? 816 : 0);
++                        if (mode == CloneCommands.Mode.MOVE) {
++                            for (BlockPos pos : snapshot.allPositions) {
++                                fromDimension.setBlock(pos, Blocks.BARRIER.defaultBlockState(), defaultUpdateFlags | Block.UPDATE_SKIP_ALL_SIDEEFFECTS);
++                            }
++
++                            int standardUpdateFlags = strict ? defaultUpdateFlags : Block.UPDATE_ALL;
++
++                            for (BlockPos pos : snapshot.allPositions) {
++                                fromDimension.setBlock(pos, Blocks.AIR.defaultBlockState(), standardUpdateFlags);
++                            }
++                        }
++
++                        // we have finished our work in the source dimension, now we move to the destination
++
++                        toDimension.canvas$loadOrRunAtChunksAsync(
++                            destination.minX() >> 4, destination.maxX() >> 4, destination.minZ() >> 4, destination.maxZ() >> 4,
++                            ca.spottedleaf.concurrentutil.util.Priority.NORMAL, () -> {
++
++                                // we need the reversed version of this for later usage
++
++                                final it.unimi.dsi.fastutil.objects.Object2ObjectMap<BlockPos, BlockState> previousStates = new it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap<>();
++                                final List<BlockInfo> reversedInfo = snapshot.reversed();
++                                final org.apache.commons.lang3.mutable.MutableInt count = new org.apache.commons.lang3.mutable.MutableInt(0);
++
++                                // if the position isn't there, just guess air, but that shouldn't happen
++                                previousStates.defaultReturnValue(Blocks.AIR.defaultBlockState());
++
++                                // we set everything to barriers first, then we need to set the state and then BE data
++
++                                for (CloneCommands.BlockInfo cloneInfo : reversedInfo) {
++
++                                    final BlockPos destinationPos = cloneInfo.destinationPos();
++
++                                    // we are iterating over everything, so we can set the previous states map here but only
++                                    // if not strict, since "strict" just hard-sets the states with no neighbor updates
++
++                                    if (!strict) {
++                                        previousStates.put(
++                                            destinationPos, toDimension.getBlockState(destinationPos)
++                                        );
++                                    }
++
++                                    toDimension.setBlock(destinationPos, Blocks.BARRIER.defaultBlockState(), defaultUpdateFlags | Block.UPDATE_SKIP_ALL_SIDEEFFECTS);
++                                }
++
++                                for (CloneCommands.BlockInfo cloneInfo : snapshot.collectedStates) {
++                                    if (toDimension.setBlock(cloneInfo.destinationPos(), cloneInfo.state, defaultUpdateFlags)) {
++                                        count.increment();
++                                    }
++                                }
++
++                                // we check if we even have block entities first, since if we don't then why should we
++                                // ever iterate over this, that's just dumb
++
++                                if (snapshot.hasBlockEntities.isTrue()) {
++
++                                    try (final ProblemReporter.ScopedCollector blockEntitiesReporter = new ProblemReporter.ScopedCollector(LOGGER)) {
++
++                                        // if we are here, we have block entities, so we now iterate over all entries
++                                        // until we find any
++
++                                        for (CloneCommands.BlockInfo cloneInfo : snapshot.collectedStates) {
++                                            if (cloneInfo.blockEntityInfo == null) continue; // skip entries with no data
++
++                                            BlockEntity newBlockEntity = toDimension.getBlockEntity(cloneInfo.destinationPos());
++                                            if (newBlockEntity != null) {
++                                                newBlockEntity.loadCustomOnly(
++                                                    TagValueInput.create(blockEntitiesReporter.forChild(newBlockEntity.problemPath()), toDimension.registryAccess(), cloneInfo.blockEntityInfo.tag)
++                                                );
++                                                newBlockEntity.setComponents(cloneInfo.blockEntityInfo.components);
++                                                newBlockEntity.setChanged();
++                                            }
++
++                                            toDimension.setBlock(cloneInfo.destinationPos(), cloneInfo.state, defaultUpdateFlags);
++                                        }
++
++                                    }
++
++                                }
++
++                                if (!strict) {
++                                    for (CloneCommands.BlockInfo cloneInfo : reversedInfo) {
++                                        final BlockPos destinationPos = cloneInfo.destinationPos();
++                                        toDimension.updateNeighboursOnBlockSet(destinationPos, previousStates.get(destinationPos));
++                                    }
++                                }
++
++                                ticksToAdd.forEach(
++                                    tick -> toDimension.getBlockTicks().schedule(
++                                        new net.minecraft.world.ticks.ScheduledTick<>(
++                                            tick.type(), tick.pos().offset(offset), tick.triggerTick(), tick.priority(), tick.subTickOrder() - minSubTick + maxSubTick + 1L
++                                        )
++                                    )
++                                );
++
++                                source.sendSuccess(() -> Component.translatable("commands.clone.success", count.get()), true);
++                            }
++                        );
++
++                    }
++                }
++            );
++
++            return 0;
++        }
++        // Canvas end - region threading
+         List<CloneCommands.CloneBlockInfo> solidList = Lists.newArrayList();
+         List<CloneCommands.CloneBlockInfo> blockEntitiesList = Lists.newArrayList();
+         List<CloneCommands.CloneBlockInfo> otherBlocksList = Lists.newArrayList();
 diff --git a/net/minecraft/server/commands/ExperienceCommand.java b/net/minecraft/server/commands/ExperienceCommand.java
 index 8eae0c33e3f37c388f3c7466e5733fb5da90258a..2b5a8893473a5d2c28c53095e9cec34f638c33c5 100644
 --- a/net/minecraft/server/commands/ExperienceCommand.java
@@ -3095,6 +3394,282 @@ index 088b7b91154546fc9c020cab5cefbb4b89762ac8..9d5f76ff2892fd38a21397698a986027
      }
  
      private static ScoreAccess getScore(final Scoreboard scoreboard, final ScoreHolder scoreHolder, final Objective objective) throws CommandSyntaxException {
+diff --git a/net/minecraft/server/commands/data/BlockDataAccessor.java b/net/minecraft/server/commands/data/BlockDataAccessor.java
+index 1b0ad9375986fe35795fc75f8eecfecaacc0cc13..5e4a4e0c6247f6417cd5c0570876348aaa5fe233 100644
+--- a/net/minecraft/server/commands/data/BlockDataAccessor.java
++++ b/net/minecraft/server/commands/data/BlockDataAccessor.java
+@@ -55,6 +55,37 @@ public class BlockDataAccessor implements DataAccessor {
+         this.entity = entity;
+         this.pos = pos;
+     }
++    // Canvas start - region threading
++    // note: this is only used by the data command
++
++    @Override
++    public void ensureTickThread(final String reason) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
++        if (!isTickThreadFor()) {
++            throw net.minecraft.server.commands.data.DataAccessor.CSE_TARGET_NOT_SAME_REGION.create();
++        }
++        // on same region, pass
++    }
++
++    @Override
++    public void scheduleOrExecute(final java.util.function.Consumer<DataAccessor> consumer) {
++        final net.minecraft.world.level.Level entityLevel = this.entity.getLevel();
++        if (entityLevel == null) {
++            return;
++        }
++        // if we own the pos we just run it
++        entityLevel.canvas$loadOrRunAtChunksAsync(
++            // just set radius to 0, nobody cares about surrounding blocks
++            pos, 0, ca.spottedleaf.concurrentutil.util.Priority.NORMAL, () -> {
++                consumer.accept(this);
++            }
++        );
++    }
++
++    @Override
++    public boolean isTickThreadFor() {
++        return ca.spottedleaf.moonrise.common.util.TickThread.isTickThreadFor(this.entity.getLevel(), pos);
++    }
++    // Canvas end - region threading
+ 
+     @Override
+     public void setData(final CompoundTag tag) {
+diff --git a/net/minecraft/server/commands/data/DataAccessor.java b/net/minecraft/server/commands/data/DataAccessor.java
+index 8eed353e878d3c2bede58ed526c4bc065fe7db90..fa225169136b1e74bd666325bfe76d5136b9c408 100644
+--- a/net/minecraft/server/commands/data/DataAccessor.java
++++ b/net/minecraft/server/commands/data/DataAccessor.java
+@@ -16,4 +16,19 @@ public interface DataAccessor {
+     Component getPrintSuccess(Tag data);
+ 
+     Component getPrintSuccess(NbtPathArgument.NbtPath path, double scale, int value);
++    // Canvas start - region threading
++    com.mojang.brigadier.exceptions.SimpleCommandExceptionType CSE_TARGET_NOT_SAME_REGION =
++        new com.mojang.brigadier.exceptions.SimpleCommandExceptionType(Component.literal("Target not in same region"));
++    // note: this should throw a CSE that says "not in same region" or something,
++    //       we do not trigger a REAL ISE thread check
++    default void ensureTickThread(final String reason) throws CommandSyntaxException {
++        // no-op
++    }
++    default void scheduleOrExecute(final java.util.function.Consumer<DataAccessor> consumer) {
++        // no-op
++    }
++    default boolean isTickThreadFor() {
++        return false;
++    }
++    // Canvas end - region threading
+ }
+diff --git a/net/minecraft/server/commands/data/DataCommands.java b/net/minecraft/server/commands/data/DataCommands.java
+index 6ed3ed01d42faa3421e280e55f023a05702e43df..66821bfc97497935cf01d8d3960834baca9c06b1 100644
+--- a/net/minecraft/server/commands/data/DataCommands.java
++++ b/net/minecraft/server/commands/data/DataCommands.java
+@@ -53,7 +53,7 @@ public class DataCommands {
+         (start, end) -> Component.translatableEscape("commands.data.modify.invalid_substring", start, end)
+     );
+     public static final List<Function<String, DataCommands.DataProvider>> ALL_PROVIDERS = ImmutableList.of(
+-        EntityDataAccessor.PROVIDER, BlockDataAccessor.PROVIDER, StorageDataAccessor.PROVIDER
++        EntityDataAccessor.PROVIDER, BlockDataAccessor.PROVIDER//, StorageDataAccessor.PROVIDER // Canvas - region threading
+     );
+     public static final List<DataCommands.DataProvider> TARGET_PROVIDERS = ALL_PROVIDERS.stream()
+         .map(f -> f.apply("target"))
+@@ -162,6 +162,33 @@ public class DataCommands {
+ 
+         dispatcher.register(root);
+     }
++    // Canvas start - region threading
++
++    // we disallow getting/modifying data of accessors not in the same region unless the sender is
++    // calling from the global tick(most likely meaning console or RCON). we can't add the global
++    // data accessor back since that's not quite thread safe and that implementation I haven't quite
++    // figured out yet, but that is something we can revisit in the future
++
++    // TODO - bring back global storage data accessor?
++
++    private static void handleAction(final io.canvasmc.canvas.util.CommandFunction<net.minecraft.server.commands.data.DataAccessor> iAction, final DataAccessor accessor, final CommandSourceStack sourceStack) throws CommandSyntaxException {
++        if (io.papermc.paper.threadedregions.RegionizedServer.isGlobalTickThread()) {
++            // just schedule to the instance in question
++            accessor.scheduleOrExecute((da) -> {
++                try {
++                    iAction.act(da);
++                } catch (CommandSyntaxException e) {
++                    sourceStack.sendFailure(Component.literal(e.getMessage()));
++                }
++            });
++        }
++        else {
++            // on a region thread
++            accessor.ensureTickThread("Cannot access or modify data of target off region");
++            iAction.act(accessor);
++        }
++    }
++    // Canvas end - region threading
+ 
+     private static String getAsText(final Tag tag) throws CommandSyntaxException {
+         return switch (tag) {
+@@ -311,7 +338,10 @@ public class DataCommands {
+         final DataCommands.DataManipulator manipulator,
+         final List<Tag> source
+     ) throws CommandSyntaxException {
+-        DataAccessor target = targetProvider.access(context);
++        // Canvas start - region threading
++        DataAccessor providerAccessed = targetProvider.access(context);
++        handleAction((target) -> {
++        // Canvas end - region threading
+         NbtPathArgument.NbtPath targetPath = NbtPathArgument.getPath(context, "targetPath");
+         CompoundTag targetData = target.getData();
+         int result = manipulator.modify(context, targetData, targetPath, source);
+@@ -322,18 +352,31 @@ public class DataCommands {
+         target.setData(targetData);
+         context.getSource().sendSuccess(() -> target.getModifiedSuccess(), true);
+         return result;
++        // Canvas start - region threading
++        }, providerAccessed, context.getSource());
++        return 0;
++        // Canvas end - region threading
+     }
+ 
+     private static int removeData(final CommandSourceStack source, final DataAccessor accessor, final NbtPathArgument.NbtPath path) throws CommandSyntaxException {
+-        CompoundTag result = accessor.getData();
++        // Canvas start - region threading
++        handleAction((dataAccessor) -> {
++        CompoundTag result = dataAccessor.getData();
++        // Canvas end - region threading
+         int count = path.remove(result);
+         if (count == 0) {
+             throw ERROR_MERGE_UNCHANGED.create();
+         }
+ 
+-        accessor.setData(result);
+-        source.sendSuccess(() -> accessor.getModifiedSuccess(), true);
++        // Canvas start - region threading
++        dataAccessor.setData(result);
++        source.sendSuccess(dataAccessor::getModifiedSuccess, true);
++        // Canvas end - region threading
+         return count;
++        // Canvas start - region threading
++        }, accessor, source);
++        return 0;
++        // Canvas end - region threading
+     }
+ 
+     public static Tag getSingleTag(final NbtPathArgument.NbtPath path, final DataAccessor accessor) throws CommandSyntaxException {
+@@ -348,7 +391,10 @@ public class DataCommands {
+     }
+ 
+     private static int getData(final CommandSourceStack source, final DataAccessor accessor, final NbtPathArgument.NbtPath path) throws CommandSyntaxException {
+-        Tag tag = getSingleTag(path, accessor);
++        // Canvas start - region threading
++        handleAction((dataAccessor) -> {
++        Tag tag = getSingleTag(path, dataAccessor);
++        // Canvas end - region threading
+ 
+         int result = switch (tag) {
+             case NumericTag numericTag -> Mth.floor(numericTag.doubleValue());
+@@ -358,29 +404,48 @@ public class DataCommands {
+             case EndTag ignored -> throw ERROR_GET_NON_EXISTENT.create(path.toString());
+             default -> throw new MatchException(null, null);
+         };
+-        source.sendSuccess(() -> accessor.getPrintSuccess(tag), false);
++        source.sendSuccess(() -> dataAccessor.getPrintSuccess(tag), false); // Canvas - region threading
+         return result;
++        // Canvas start - region threading
++        }, accessor, source);
++        return 0;
++        // Canvas end - region threading
+     }
+ 
+     private static int getNumeric(final CommandSourceStack source, final DataAccessor accessor, final NbtPathArgument.NbtPath path, final double scale) throws CommandSyntaxException {
+-        Tag tag = getSingleTag(path, accessor);
++        // Canvas start - region threading
++        handleAction((dataAccessor) -> {
++        Tag tag = getSingleTag(path, dataAccessor);
++        // Canvas end - region threading
+         if (!(tag instanceof NumericTag)) {
+             throw ERROR_GET_NOT_NUMBER.create(path.toString());
+         }
+ 
+         int result = Mth.floor(((NumericTag)tag).doubleValue() * scale);
+-        source.sendSuccess(() -> accessor.getPrintSuccess(path, scale, result), false);
++        source.sendSuccess(() -> dataAccessor.getPrintSuccess(path, scale, result), false); // Canvas - region threading
+         return result;
++        // Canvas start - region threading
++        }, accessor, source);
++        return 0;
++        // Canvas end - region threading
+     }
+ 
+     private static int getData(final CommandSourceStack source, final DataAccessor accessor) throws CommandSyntaxException {
+-        CompoundTag data = accessor.getData();
+-        source.sendSuccess(() -> accessor.getPrintSuccess(data), false);
++        // Canvas start - region threading
++        handleAction((dataAccessor) -> {
++            CompoundTag data = dataAccessor.getData();
++            source.sendSuccess(() -> dataAccessor.getPrintSuccess(data), false);
++            return 1;
++        }, accessor, source);
++        // Canvas end - region threading
+         return 1;
+     }
+ 
+     private static int mergeData(final CommandSourceStack source, final DataAccessor accessor, final CompoundTag nbt) throws CommandSyntaxException {
+-        CompoundTag old = accessor.getData();
++        // Canvas start - region threading
++        handleAction((dataAccessor) -> {
++        CompoundTag old = dataAccessor.getData();
++        // Canvas end - region threading
+         if (NbtPathArgument.NbtPath.isTooDeep(nbt, 0)) {
+             throw NbtPathArgument.ERROR_DATA_TOO_DEEP.create();
+         }
+@@ -390,9 +455,15 @@ public class DataCommands {
+             throw ERROR_MERGE_UNCHANGED.create();
+         }
+ 
+-        accessor.setData(result);
+-        source.sendSuccess(() -> accessor.getModifiedSuccess(), true);
++        // Canvas start - region threading
++        dataAccessor.setData(result);
++        source.sendSuccess(dataAccessor::getModifiedSuccess, true);
++        // Canvas end - region threading
++        return 1;
++        // Canvas start - region threading
++        }, accessor, source);
+         return 1;
++        // Canvas end - region threading
+     }
+ 
+     @FunctionalInterface
+diff --git a/net/minecraft/server/commands/data/EntityDataAccessor.java b/net/minecraft/server/commands/data/EntityDataAccessor.java
+index bcd7097def03c59140e1774cfdc787d526fb205b..8113ed86e9ed7891a0a4e98f499c7069a6252cef 100644
+--- a/net/minecraft/server/commands/data/EntityDataAccessor.java
++++ b/net/minecraft/server/commands/data/EntityDataAccessor.java
+@@ -45,6 +45,26 @@ public class EntityDataAccessor implements DataAccessor {
+     public EntityDataAccessor(final Entity entity) {
+         this.entity = entity;
+     }
++    // Canvas start - region threading
++    // note: this is only used by the data command
++
++    @Override
++    public void ensureTickThread(final String reason) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
++        if (!isTickThreadFor()) {
++            throw DataAccessor.CSE_TARGET_NOT_SAME_REGION.create();
++        }
++    }
++
++    @Override
++    public void scheduleOrExecute(final java.util.function.Consumer<DataAccessor> consumer) {
++        this.entity.getBukkitEntity().taskScheduler.scheduleOrExecute((_) -> consumer.accept(this));
++    }
++
++    @Override
++    public boolean isTickThreadFor() {
++        return ca.spottedleaf.moonrise.common.util.TickThread.isTickThreadFor(this.entity);
++    }
++    // Canvas end - region threading
+ 
+     @Override
+     public void setData(final CompoundTag tag) throws CommandSyntaxException {
 diff --git a/net/minecraft/server/gui/PlayerListComponent.java b/net/minecraft/server/gui/PlayerListComponent.java
 index 37c9f983ae89c497f44a1b7967d741abf909e0a0..366c20adab0620c579510a09adc58e83cce9dec1 100644
 --- a/net/minecraft/server/gui/PlayerListComponent.java
@@ -3192,7 +3767,7 @@ index aa9459d62eaea7ccb1d9c7f52c9901e5410182ed..30cdbe646e842403cfe5296b4d52e3e0
              }
  
 diff --git a/net/minecraft/server/level/ServerLevel.java b/net/minecraft/server/level/ServerLevel.java
-index 24450c98da398d13a3f215d464356e7c67a318b6..1af6dc49c11fb7c248df0db32ee7806cc057258b 100644
+index 24450c98da398d13a3f215d464356e7c67a318b6..c6672dfbb0d177ba13cdb8649146af1f57151c97 100644
 --- a/net/minecraft/server/level/ServerLevel.java
 +++ b/net/minecraft/server/level/ServerLevel.java
 @@ -678,7 +678,7 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
@@ -3274,8 +3849,17 @@ index 24450c98da398d13a3f215d464356e7c67a318b6..1af6dc49c11fb7c248df0db32ee7806c
          entity.generation = false; // Paper - Don't fire sync event during generation; Reset flag if it was added during a ServerLevel generation process
          // Paper start - extra debug info
          if (entity.valid) {
+@@ -2895,7 +2929,7 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
+     }
+ 
+     public boolean isCommandBlockEnabled() {
+-        return this.getGameRules().get(GameRules.COMMAND_BLOCKS_WORK);
++        return false; // Canvas - region threading
+     }
+ 
+     public boolean isSpawnerBlockEnabled() {
 diff --git a/net/minecraft/server/level/ServerPlayer.java b/net/minecraft/server/level/ServerPlayer.java
-index 145dc8559e570696baa3f1f2294a2258b94d7727..49cfe2aa5281da3cfe8789bd148fe8dcee7a285e 100644
+index 145dc8559e570696baa3f1f2294a2258b94d7727..17850e18c650df003494f6e525386c3af795e6a7 100644
 --- a/net/minecraft/server/level/ServerPlayer.java
 +++ b/net/minecraft/server/level/ServerPlayer.java
 @@ -267,7 +267,40 @@ public class ServerPlayer extends Player implements ca.spottedleaf.moonrise.patc
@@ -3335,6 +3919,11 @@ index 145dc8559e570696baa3f1f2294a2258b94d7727..49cfe2aa5281da3cfe8789bd148fe8dc
 +    // Canvas start - region threading
 +
 +    public void savePearls(boolean removePearl) {
++        // shutdown should manually go through pearls
++        if (ca.spottedleaf.moonrise.common.util.TickThread.isShutdownThread()) {
++            throw new IllegalStateException("Cannot save pearls through shutdown thread here");
++        }
++
 +        for (ThrownEnderpearl thrownEnderpearl : enderPearls) {
 +            if (thrownEnderpearl.level().paperConfig().misc.legacyEnderPearlBehavior) continue;
 +
@@ -3342,11 +3931,6 @@ index 145dc8559e570696baa3f1f2294a2258b94d7727..49cfe2aa5281da3cfe8789bd148fe8dc
 +                MinecraftServer.getServer().pearls.addPearl(this.uuid, pearl);
 +                if (removePearl) pearl.setRemoved(Entity.RemovalReason.UNLOADED_WITH_PLAYER, org.bukkit.event.entity.EntityRemoveEvent.Cause.PLAYER_QUIT);
 +            };
-+
-+            if (io.papermc.paper.threadedregions.RegionShutdownThread.isShutdownThread()) {
-+                task.accept(thrownEnderpearl);
-+                continue;
-+            }
 +
 +            thrownEnderpearl.getBukkitEntity().taskScheduler.scheduleOrExecute(task);
 +        }
@@ -3776,10 +4360,36 @@ index 40b4eeb561a91264b9ab6ddc49cb8a93daae84a4..b0737af20babc797f957a273518a0418
          });
      }
 diff --git a/net/minecraft/server/network/ServerGamePacketListenerImpl.java b/net/minecraft/server/network/ServerGamePacketListenerImpl.java
-index 6a9efabcf5677f90618e732238f1c09e3d4184ec..5ac62053c62a81a5ff90b420b5e4727dd8a9f04a 100644
+index 6a9efabcf5677f90618e732238f1c09e3d4184ec..cab6bcb877a008b1e5700310811cf5a1073d8767 100644
 --- a/net/minecraft/server/network/ServerGamePacketListenerImpl.java
 +++ b/net/minecraft/server/network/ServerGamePacketListenerImpl.java
-@@ -1551,7 +1551,7 @@ public class ServerGamePacketListenerImpl
+@@ -970,6 +970,12 @@ public class ServerGamePacketListenerImpl
+     @Override
+     public void handleSetCommandBlock(final ServerboundSetCommandBlockPacket packet) {
+         PacketUtils.ensureRunningOnSameThread(packet, this, this.player.level());
++        // Canvas start - region threading
++        if (true) {
++            this.player.sendSystemMessage(Component.literal("Command blocks are not enabled with region threading"));
++            return;
++        }
++        // Canvas end - region threading
+         if (!this.player.canUseGameMasterBlocks() && (!this.player.isCreative() || !this.player.getBukkitEntity().hasPermission("minecraft.commandblock"))) { // Paper - command block permission
+             this.player.sendSystemMessage(Component.translatable("advMode.notAllowed"));
+         } else {
+@@ -1031,6 +1037,12 @@ public class ServerGamePacketListenerImpl
+     @Override
+     public void handleSetCommandMinecart(final ServerboundSetCommandMinecartPacket packet) {
+         PacketUtils.ensureRunningOnSameThread(packet, this, this.player.level());
++        // Canvas start - region threading
++        if (true) {
++            this.player.sendSystemMessage(Component.literal("Command block minecarts are not enabled with region threading"));
++            return;
++        }
++        // Canvas end - region threading
+         if (!this.player.canUseGameMasterBlocks() && (!this.player.isCreative() || !this.player.getBukkitEntity().hasPermission("minecraft.commandblock"))) { // Paper - command block permission
+             this.player.sendSystemMessage(Component.translatable("advMode.notAllowed"));
+         } else {
+@@ -1551,7 +1563,7 @@ public class ServerGamePacketListenerImpl
                                  }
                              } else {
                                  boolean isFallFlying = this.player.isFallFlying();
@@ -3788,7 +4398,7 @@ index 6a9efabcf5677f90618e732238f1c09e3d4184ec..5ac62053c62a81a5ff90b420b5e4727d
                                      this.receivedMovePacketCount++;
                                      int deltaPackets = this.receivedMovePacketCount - this.knownMovePacketCount;
                                      // CraftBukkit start - handle custom speeds and skipped ticks
-@@ -2408,7 +2408,7 @@ public class ServerGamePacketListenerImpl
+@@ -2408,7 +2420,7 @@ public class ServerGamePacketListenerImpl
      public void handleChat(final ServerboundChatPacket packet) {
          // CraftBukkit start - async chat
          // SPIGOT-3638
@@ -4999,6 +5609,22 @@ index ecc97ec30f9ba0ff4f804f350ae03118be3d8b4f..81fd2f5d343fe25413102dac791965e8
                                  // Folia end - Fix off region raid heroes
                              }
                          }
+diff --git a/net/minecraft/world/entity/vehicle/minecart/MinecartCommandBlock.java b/net/minecraft/world/entity/vehicle/minecart/MinecartCommandBlock.java
+index 649600dbffeff42ae2a8e7ba4d0ba6ff99faf92a..0be598cae2a7c0ec34b31d812b56780f3a983e8f 100644
+--- a/net/minecraft/world/entity/vehicle/minecart/MinecartCommandBlock.java
++++ b/net/minecraft/world/entity/vehicle/minecart/MinecartCommandBlock.java
+@@ -87,6 +87,11 @@ public class MinecartCommandBlock extends AbstractMinecart {
+ 
+     @Override
+     public InteractionResult interact(final Player player, final InteractionHand hand, final Vec3 location) {
++        // Canvas start - region threading
++        if (true) {
++            return InteractionResult.FAIL;
++        }
++        // Canvas end - region threading
+         if (!player.canUseGameMasterBlocks() && (!player.isCreative() || !player.getBukkitEntity().hasPermission("minecraft.commandblock"))) { // Paper - command block permission
+             return InteractionResult.PASS;
+         }
 diff --git a/net/minecraft/world/item/Item.java b/net/minecraft/world/item/Item.java
 index 589b67f329e17f0a341e3c7600141b731fde9b52..9bc7d871fc133ee3604b807cc73f3ea97c8a4612 100644
 --- a/net/minecraft/world/item/Item.java
@@ -5085,6 +5711,34 @@ index 928e8d42bee8a97c342aabd1b79bd7ad00e5a5d8..d59a81c6de2c00492ad92dfa4990897c
  
          int tickedEntities = 0; // Paper - rewrite chunk system
          // Paper start - Fix MC-117075 use removeAll
+diff --git a/net/minecraft/world/level/block/CommandBlock.java b/net/minecraft/world/level/block/CommandBlock.java
+index 1c96b29d823c8979c3c4a08699f6318a063d41a2..1f3e555bbdb85105c978b36f3c9aab9b14a33c47 100644
+--- a/net/minecraft/world/level/block/CommandBlock.java
++++ b/net/minecraft/world/level/block/CommandBlock.java
+@@ -91,6 +91,11 @@ public class CommandBlock extends BaseEntityBlock implements GameMasterBlock {
+ 
+     @Override
+     protected void tick(final BlockState state, final ServerLevel level, final BlockPos pos, final RandomSource random) {
++        // Canvas start - region threading
++        if (true) {
++            return;
++        }
++        // Canvas end - region threading
+         if (level.getBlockEntity(pos) instanceof CommandBlockEntity commandBlock) {
+             BaseCommandBlock baseCommandBlock = commandBlock.getCommandBlock();
+             boolean commandSet = !StringUtil.isNullOrEmpty(baseCommandBlock.getCommand());
+@@ -133,6 +138,11 @@ public class CommandBlock extends BaseEntityBlock implements GameMasterBlock {
+     protected InteractionResult useWithoutItem(
+         final BlockState state, final Level level, final BlockPos pos, final Player player, final BlockHitResult hitResult
+     ) {
++        // Canvas start - region threading
++        if (true) {
++            return InteractionResult.FAIL;
++        }
++        // Canvas end - region threading
+         BlockEntity blockEntity = level.getBlockEntity(pos);
+         if (blockEntity instanceof CommandBlockEntity && (player.canUseGameMasterBlocks() || (player.isCreative() && player.getBukkitEntity().hasPermission("minecraft.commandblock")))) { // Paper - command block permission
+             player.openCommandBlock((CommandBlockEntity)blockEntity);
 diff --git a/net/minecraft/world/level/block/entity/TheEndGatewayBlockEntity.java b/net/minecraft/world/level/block/entity/TheEndGatewayBlockEntity.java
 index 832e04b97ffae60127537c0a8eb448af6602da1e..83b40c182cce1c7a77e8ba3c66c2273a49c10881 100644
 --- a/net/minecraft/world/level/block/entity/TheEndGatewayBlockEntity.java
@@ -5277,10 +5931,10 @@ index 18efc6c44b94d24b9f4a3a828cfba1410131c6f3..fd48ba936144841c1c983e78386e1106
      public @Nullable Score get(final Objective objective) {
          return this.scores.get(objective);
 diff --git a/net/minecraft/world/scores/PlayerTeam.java b/net/minecraft/world/scores/PlayerTeam.java
-index 39e068b1b917a37d85f756f85c9f35acb0b091c4..8b63b0d09f8346469b7ba863bf29534964b679f0 100644
+index 39e068b1b917a37d85f756f85c9f35acb0b091c4..0c48099e986b876eda2358cccfb507f620f3617f 100644
 --- a/net/minecraft/world/scores/PlayerTeam.java
 +++ b/net/minecraft/world/scores/PlayerTeam.java
-@@ -22,39 +22,22 @@ public class PlayerTeam extends Team {
+@@ -22,39 +22,38 @@ public class PlayerTeam extends Team {
      private static final int BIT_SEE_INVISIBLES = 1;
      private final Scoreboard scoreboard;
      private final String name;
@@ -5298,6 +5952,22 @@ index 39e068b1b917a37d85f756f85c9f35acb0b091c4..8b63b0d09f8346469b7ba863bf295349
 +    private final Set<String> players = new java.util.concurrent.CopyOnWriteArraySet<>();
 +    private final io.canvasmc.canvas.util.LockedReference<io.canvasmc.canvas.world.scores.TeamData> teamData =
 +        new io.canvasmc.canvas.util.LockedReference<>(new io.canvasmc.canvas.world.scores.TeamData());
++    private final java.util.concurrent.atomic.AtomicBoolean isRegistered = new java.util.concurrent.atomic.AtomicBoolean(false);
++
++    public void ensureMainThread(final String reason) {
++        if (isRegistered.get()) {
++            this.scoreboard.ensureMainThread(reason);
++        }
++        // else, we don't care. if we aren't registered we don't need to run thread checks
++    }
++
++    public void registerCallback() {
++        isRegistered.set(true);
++    }
++
++    public void unregisterCallback() {
++        isRegistered.set(false);
++    }
 +    // Canvas end - region threading
      private final Style displayNameStyle;
  
@@ -5327,7 +5997,7 @@ index 39e068b1b917a37d85f756f85c9f35acb0b091c4..8b63b0d09f8346469b7ba863bf295349
      }
  
      public Scoreboard getScoreboard() {
-@@ -67,11 +50,11 @@ public class PlayerTeam extends Team {
+@@ -67,11 +66,11 @@ public class PlayerTeam extends Team {
      }
  
      public Component getDisplayName() {
@@ -5341,11 +6011,11 @@ index 39e068b1b917a37d85f756f85c9f35acb0b091c4..8b63b0d09f8346469b7ba863bf295349
          ChatFormatting color = this.getColor();
          if (color != ChatFormatting.RESET) {
              result.withStyle(color);
-@@ -81,30 +64,37 @@ public class PlayerTeam extends Team {
+@@ -81,30 +80,37 @@ public class PlayerTeam extends Team {
      }
  
      public void setDisplayName(final Component displayName) {
-+        this.scoreboard.ensureMainThread("Cannot set display name for team async"); // Canvas - region threading
++        this.ensureMainThread("Cannot set display name for team async"); // Canvas - region threading
          if (displayName == null) {
              throw new IllegalArgumentException("Name cannot be null");
          }
@@ -5358,7 +6028,7 @@ index 39e068b1b917a37d85f756f85c9f35acb0b091c4..8b63b0d09f8346469b7ba863bf295349
      public void setPlayerPrefix(final @Nullable Component playerPrefix) {
 -        this.playerPrefix = playerPrefix == null ? CommonComponents.EMPTY : playerPrefix;
 +        // Canvas start - region threading
-+        this.scoreboard.ensureMainThread("Cannot set player prefix for team async");
++        this.ensureMainThread("Cannot set player prefix for team async");
 +        this.teamData.swapValue((data) -> io.canvasmc.canvas.world.scores.TeamData.copyOf(data).setPlayerPrefix(playerPrefix == null ? CommonComponents.EMPTY : playerPrefix));
 +        // Canvas end - region threading
          this.scoreboard.onTeamChanged(this);
@@ -5372,7 +6042,7 @@ index 39e068b1b917a37d85f756f85c9f35acb0b091c4..8b63b0d09f8346469b7ba863bf295349
      public void setPlayerSuffix(final @Nullable Component playerSuffix) {
 -        this.playerSuffix = playerSuffix == null ? CommonComponents.EMPTY : playerSuffix;
 +        // Canvas start - region threading
-+        this.scoreboard.ensureMainThread("Cannot set player suffix for team async");
++        this.ensureMainThread("Cannot set player suffix for team async");
 +        this.teamData.swapValue((data) -> io.canvasmc.canvas.world.scores.TeamData.copyOf(data).setPlayerSuffix(playerSuffix == null ? CommonComponents.EMPTY : playerSuffix));
 +        // Canvas end - region threading
          this.scoreboard.onTeamChanged(this);
@@ -5384,7 +6054,7 @@ index 39e068b1b917a37d85f756f85c9f35acb0b091c4..8b63b0d09f8346469b7ba863bf295349
      }
  
      @Override
-@@ -114,7 +104,7 @@ public class PlayerTeam extends Team {
+@@ -114,7 +120,7 @@ public class PlayerTeam extends Team {
  
      @Override
      public MutableComponent getFormattedName(final Component teamMemberName) {
@@ -5393,7 +6063,7 @@ index 39e068b1b917a37d85f756f85c9f35acb0b091c4..8b63b0d09f8346469b7ba863bf295349
          ChatFormatting color = this.getColor();
          if (color != ChatFormatting.RESET) {
              result.withStyle(color);
-@@ -129,51 +119,66 @@ public class PlayerTeam extends Team {
+@@ -129,51 +135,66 @@ public class PlayerTeam extends Team {
  
      @Override
      public boolean isAllowFriendlyFire() {
@@ -5404,7 +6074,7 @@ index 39e068b1b917a37d85f756f85c9f35acb0b091c4..8b63b0d09f8346469b7ba863bf295349
      public void setAllowFriendlyFire(final boolean allowFriendlyFire) {
 -        this.allowFriendlyFire = allowFriendlyFire;
 +        // Canvas start - region threading
-+        this.scoreboard.ensureMainThread("Cannot set friendly fire flag for team async");
++        this.ensureMainThread("Cannot set friendly fire flag for team async");
 +        this.teamData.swapValue((data) -> io.canvasmc.canvas.world.scores.TeamData.copyOf(data).setAllowFriendlyFire(allowFriendlyFire));
 +        // Canvas end - region threading
          this.scoreboard.onTeamChanged(this);
@@ -5419,7 +6089,7 @@ index 39e068b1b917a37d85f756f85c9f35acb0b091c4..8b63b0d09f8346469b7ba863bf295349
      public void setSeeFriendlyInvisibles(final boolean seeFriendlyInvisibles) {
 -        this.seeFriendlyInvisibles = seeFriendlyInvisibles;
 +        // Canvas start - region threading
-+        this.scoreboard.ensureMainThread("Cannot set friendly invisibles flag for team async");
++        this.ensureMainThread("Cannot set friendly invisibles flag for team async");
 +        this.teamData.swapValue((data) -> io.canvasmc.canvas.world.scores.TeamData.copyOf(data).setSeeFriendlyInvisibles(seeFriendlyInvisibles));
 +        // Canvas end - region threading
          this.scoreboard.onTeamChanged(this);
@@ -5440,7 +6110,7 @@ index 39e068b1b917a37d85f756f85c9f35acb0b091c4..8b63b0d09f8346469b7ba863bf295349
      public void setNameTagVisibility(final Team.Visibility visibility) {
 -        this.nameTagVisibility = visibility;
 +        // Canvas start - region threading
-+        this.scoreboard.ensureMainThread("Cannot set name tag visibility for team async");
++        this.ensureMainThread("Cannot set name tag visibility for team async");
 +        this.teamData.swapValue((data) -> io.canvasmc.canvas.world.scores.TeamData.copyOf(data).setNameTagVisibility(visibility));
          this.scoreboard.onTeamChanged(this);
 +        // Canvas end - region threading
@@ -5449,7 +6119,7 @@ index 39e068b1b917a37d85f756f85c9f35acb0b091c4..8b63b0d09f8346469b7ba863bf295349
      public void setDeathMessageVisibility(final Team.Visibility visibility) {
 -        this.deathMessageVisibility = visibility;
 +        // Canvas start - region threading
-+        this.scoreboard.ensureMainThread("Cannot set death message visibility for team async");
++        this.ensureMainThread("Cannot set death message visibility for team async");
 +        this.teamData.swapValue((data) -> io.canvasmc.canvas.world.scores.TeamData.copyOf(data).setDeathMessageVisibility(visibility));
          this.scoreboard.onTeamChanged(this);
 +        // Canvas end - region threading
@@ -5464,19 +6134,19 @@ index 39e068b1b917a37d85f756f85c9f35acb0b091c4..8b63b0d09f8346469b7ba863bf295349
      public void setCollisionRule(final Team.CollisionRule collisionRule) {
 -        this.collisionRule = collisionRule;
 +        // Canvas start - region threading
-+        this.scoreboard.ensureMainThread("Cannot set collision rule for team async");
++        this.ensureMainThread("Cannot set collision rule for team async");
 +        this.teamData.swapValue((data) -> io.canvasmc.canvas.world.scores.TeamData.copyOf(data).setCollisionRule(collisionRule));
 +        // Canvas end - region threading
          this.scoreboard.onTeamChanged(this);
      }
  
-@@ -196,13 +201,16 @@ public class PlayerTeam extends Team {
+@@ -196,13 +217,16 @@ public class PlayerTeam extends Team {
      }
  
      public void setColor(final ChatFormatting color) {
 -        this.color = color;
 +        // Canvas start - region threading
-+        this.scoreboard.ensureMainThread("Cannot set color for team async");
++        this.ensureMainThread("Cannot set color for team async");
 +        this.teamData.swapValue((data) -> io.canvasmc.canvas.world.scores.TeamData.copyOf(data).setColor(color));
 +        // Canvas end - region threading
          this.scoreboard.onTeamChanged(this);

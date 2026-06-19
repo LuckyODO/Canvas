@@ -1,10 +1,10 @@
 package io.canvasmc.canvas.spark.plugin;
 
 import ca.spottedleaf.concurrentutil.util.Priority;
-import ca.spottedleaf.moonrise.common.time.TickData;
 import io.canvasmc.canvas.spark.FoliaSparkPlugin;
 import io.canvasmc.canvas.spark.profiler.RegionProfiler;
 import io.canvasmc.canvas.spark.profiler.RegionScheduleHandlePinner;
+import io.canvasmc.canvas.util.Util;
 import io.papermc.paper.threadedregions.RegionizedServer;
 import io.papermc.paper.threadedregions.RegionizedWorldData;
 import java.util.ArrayList;
@@ -28,8 +28,6 @@ import net.minecraft.world.level.chunk.LevelChunk;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
 import org.bukkit.GameRule;
-import org.bukkit.NamespacedKey;
-import org.bukkit.Registry;
 import org.bukkit.Server;
 import org.bukkit.World;
 import org.bukkit.craftbukkit.CraftChunk;
@@ -38,7 +36,6 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.jetbrains.annotations.Contract;
 import org.jspecify.annotations.NonNull;
-import org.jspecify.annotations.Nullable;
 
 public class FoliaWorldInfoProvider implements WorldInfoProvider {
     private final FoliaSparkPlugin plugin;
@@ -145,7 +142,7 @@ public class FoliaWorldInfoProvider implements WorldInfoProvider {
             final ServerLevel level = ((CraftWorld) world).getHandle();
             final Map<Long, List<FoliaChunkInfo>> byRegion = new HashMap<>();
             final Map<Long, ChunkRegionCenter> centerByRegion = new HashMap<>();
-            final String worldKey = world.key().asMinimalString().replace('/', '_').replace(':', '_');
+            final String worldKey = Util.getWorldName(world);
             final String worldCapitalized = worldKey.substring(0, 1).toUpperCase(Locale.ROOT) + worldKey.substring(1);
 
             for (Chunk chunk : world.getLoadedChunks()) {
