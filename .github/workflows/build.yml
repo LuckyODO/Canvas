@@ -1,0 +1,51 @@
+name: build canvas
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    env:
+      BUILD_NUMBER: ${{ github.run_number }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '25'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Configure Git identity
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Build Canvas
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon applyAllPatches
+          ./gradlew --no-daemon createPaperclipJar
+
+      - name: Upload jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: canvas-${{ github.run_number }}
+          path: canvas-server/build/libs/*.jar
+          if-no-files-found: error
