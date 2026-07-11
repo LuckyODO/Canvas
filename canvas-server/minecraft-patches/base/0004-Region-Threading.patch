@@ -945,13 +945,14 @@ index 15568f598b8c61cf92563b6a7f8cae526b84484e..8d2518600ad518999b75124f0a87db9e
                  if (chunk == null) {
 diff --git a/io/canvasmc/canvas/threadedregions/ScheduledHandleTickState.java b/io/canvasmc/canvas/threadedregions/ScheduledHandleTickState.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..2b35dcdb0699012745ef1abd85d8753aa3df695b
+index 0000000000000000000000000000000000000000..42ae4a950bcfcc0fd724a09cfa8e406fcd874d62
 --- /dev/null
 +++ b/io/canvasmc/canvas/threadedregions/ScheduledHandleTickState.java
 @@ -0,0 +1,189 @@
 +package io.canvasmc.canvas.threadedregions;
 +
 +import io.canvasmc.canvas.GlobalConfiguration;
++import io.canvasmc.canvas.util.Util;
 +import io.papermc.paper.threadedregions.RegionizedServer;
 +import io.papermc.paper.threadedregions.TickRegionScheduler;
 +import io.papermc.paper.threadedregions.TickRegions;
@@ -962,16 +963,17 @@ index 0000000000000000000000000000000000000000..2b35dcdb0699012745ef1abd85d8753a
 +import net.minecraft.server.level.ServerPlayer;
 +import net.minecraft.world.entity.Entity;
 +import net.minecraft.world.entity.player.Player;
-+import org.jspecify.annotations.NonNull;
 +
 +// note: if anything is Long.MIN_VALUE, it isn't set
++@SuppressWarnings("CodeBlock2Expr")
 +public final class ScheduledHandleTickState {
 +    public static final long UNSET = Long.MIN_VALUE;
++
++    final TickRegionScheduler.RegionScheduleHandle scheduleHandle;
 +
 +    // this ensures we process actions in a synchronized manner that means we can
 +    // ensure the state stays consistent throughout the tick
 +    private final ConcurrentLinkedQueue<Action> actionQueue = new ConcurrentLinkedQueue<>();
-+    final TickRegionScheduler.RegionScheduleHandle scheduleHandle;
 +
 +    private long tickCountToSprintTo = UNSET;
 +    private long startSprintNanos = UNSET;
@@ -1010,20 +1012,19 @@ index 0000000000000000000000000000000000000000..2b35dcdb0699012745ef1abd85d8753a
 +        // check if overloaded
 +        if (lastTickTimeEndNanos != UNSET && lastTickTimeEndNanos + TickRegionScheduler.getTimeBetweenTicks() + (GlobalConfiguration.getInstance().regionScheduler.overloadedLogMillis * 1_000_000L) <= nanos) {
 +            // missed deadline to be considered "overloaded"
-+            double seconds = (nanos - (lastTickTimeEndNanos + TickRegionScheduler.getTimeBetweenTicks())) / 1_000_000_000.0;
-+            String formatted = String.format("%.2f", seconds);
++            final String formatted = Util.formatNanosToLargestDecimalUnit((nanos - (lastTickTimeEndNanos + TickRegionScheduler.getTimeBetweenTicks())));
 +            if (scheduleHandle instanceof RegionizedServer.GlobalTickTickHandle) {
-+                TickRegionScheduler.LOGGER.warn("Global tick missed deadline by {}s! Is the scheduler overloaded?", formatted);
++                TickRegionScheduler.LOGGER.warn("Global tick missed deadline by {}! Is the scheduler overloaded?", formatted);
 +            }
 +            else if (scheduleHandle instanceof TickRegions.ConcreteRegionTickHandle regionTickHandle)
-+                TickRegionScheduler.LOGGER.warn("Region surrounding {} in level \"{}\" missed deadline by {}s! Is the scheduler overloaded?",
++                TickRegionScheduler.LOGGER.warn("Region surrounding {} in level \"{}\" missed deadline by {}! Is the scheduler overloaded?",
 +                    regionTickHandle.region.region.getCenterChunk(), regionTickHandle.region.world.dimension().identifier().getPath(), formatted);
 +        }
 +
 +        return tickSprint();
 +    }
 +
-+    public void postAction(final @NonNull Action action) {
++    public void postAction(final Action action) {
 +        actionQueue.add(action);
 +    }
 +
@@ -1031,7 +1032,7 @@ index 0000000000000000000000000000000000000000..2b35dcdb0699012745ef1abd85d8753a
 +        lastTickTimeEndNanos = nanos;
 +    }
 +
-+    public void sendStateToPlayer(final @NonNull ServerPlayer player) {
++    public void sendStateToPlayer(final ServerPlayer player) {
 +        player.connection.send(new ClientboundTickingStatePacket(TickRegionScheduler.getTickRate(), !runsGameElements));
 +    }
 +
@@ -1091,7 +1092,6 @@ index 0000000000000000000000000000000000000000..2b35dcdb0699012745ef1abd85d8753a
 +        return TickRegionScheduler.getTimeBetweenTicks();
 +    }
 +
-+    @NonNull
 +    private String getString() {
 +        return scheduleHandle instanceof RegionizedServer.GlobalTickTickHandle ? "Global tick" : "Region around " + scheduleHandle.region.region.getCenterChunk();
 +    }
@@ -1111,28 +1111,28 @@ index 0000000000000000000000000000000000000000..2b35dcdb0699012745ef1abd85d8753a
 +
 +        record StartSprinting(long howLongInTicks) implements Action {
 +            @Override
-+            public void apply(final @NonNull ScheduledHandleTickState state) {
++            public void apply(final ScheduledHandleTickState state) {
 +                state.startSprinting(howLongInTicks);
 +            }
 +        }
 +
 +        class StopSprinting implements Action {
 +            @Override
-+            public void apply(final @NonNull ScheduledHandleTickState state) {
++            public void apply(final ScheduledHandleTickState state) {
 +                state.forceStopSprinting();
 +            }
 +        }
 +
 +        class Pause implements Action {
 +            @Override
-+            public void apply(final @NonNull ScheduledHandleTickState state) {
++            public void apply(final ScheduledHandleTickState state) {
 +                state.pause();
 +            }
 +        }
 +
 +        class Play implements Action {
 +            @Override
-+            public void apply(final @NonNull ScheduledHandleTickState state) {
++            public void apply(final ScheduledHandleTickState state) {
 +                state.play();
 +            }
 +        }
@@ -1140,10 +1140,10 @@ index 0000000000000000000000000000000000000000..2b35dcdb0699012745ef1abd85d8753a
 +}
 diff --git a/io/canvasmc/canvas/threadedregions/SchedulerUtil.java b/io/canvasmc/canvas/threadedregions/SchedulerUtil.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..9117dcfd4cdb5bbe3faa1cd3087cf9d0afdca2cd
+index 0000000000000000000000000000000000000000..460bc93f493d001d100f91be252db0d135108c6b
 --- /dev/null
 +++ b/io/canvasmc/canvas/threadedregions/SchedulerUtil.java
-@@ -0,0 +1,351 @@
+@@ -0,0 +1,392 @@
 +package io.canvasmc.canvas.threadedregions;
 +
 +import ca.spottedleaf.concurrentutil.numa.OSNuma;
@@ -1163,7 +1163,7 @@ index 0000000000000000000000000000000000000000..9117dcfd4cdb5bbe3faa1cd3087cf9d0
 +import java.util.concurrent.ThreadFactory;
 +import net.minecraft.server.level.ServerLevel;
 +import net.minecraft.world.level.ChunkPos;
-+import org.jspecify.annotations.NonNull;
++import org.jetbrains.annotations.UnknownNullability;
 +
 +/**
 + * This defines utilities primarily surrounding the instantiation and configuration of the scheduler types, along with
@@ -1174,6 +1174,7 @@ index 0000000000000000000000000000000000000000..9117dcfd4cdb5bbe3faa1cd3087cf9d0
 + */
 +public class SchedulerUtil {
 +    private static final CanonicalReference<SchedulerInfo> SCHEDULER_INFO = new CanonicalReference<>();
++    @UnknownNullability("nonnull when scheduler is decided in decideScheduler function")
 +    private static SchedulerHandler HANDLER;
 +
 +    public static SchedulerInfo getSchedulerInfo() {
@@ -1250,8 +1251,7 @@ index 0000000000000000000000000000000000000000..9117dcfd4cdb5bbe3faa1cd3087cf9d0
 +     *
 +     * @return the constructed scheduler
 +     */
-+    @NonNull
-+    public static Scheduler decideScheduler(final TickRegionScheduler.@NonNull SchedulerType schedulerType, final int initialThreads, final ThreadFactory threadFactory) {
++    public static Scheduler decideScheduler(final TickRegionScheduler.SchedulerType schedulerType, final int initialThreads, final ThreadFactory threadFactory) {
 +        try {
 +            switch (schedulerType) {
 +                case EDF: {
@@ -1259,7 +1259,7 @@ index 0000000000000000000000000000000000000000..9117dcfd4cdb5bbe3faa1cd3087cf9d0
 +                    return new EDFSchedulerThreadPool(initialThreads, threadFactory);
 +                }
 +                case WORK_STEALING: {
-+                    StealingScheduledThreadPool scheduler = new StealingScheduledThreadPool(
++                    final StealingScheduledThreadPool scheduler = new StealingScheduledThreadPool(
 +                        threadFactory, MoonriseConstants.NUMA_ENABLE ? OSNuma.getNativeInstance() : OSNuma.NoOp.INSTANCE
 +                    );
 +                    scheduler.setFlags(StealingScheduledThreadPool.FLAG_SCHEDULE_EVENLY);
@@ -1332,7 +1332,7 @@ index 0000000000000000000000000000000000000000..9117dcfd4cdb5bbe3faa1cd3087cf9d0
 +         * @param to
 +         *     the region we are moving the state to
 +         */
-+        void tryTransferPinningState(final TickRegionScheduler.@NonNull RegionScheduleHandle from, final TickRegionScheduler.RegionScheduleHandle to);
++        void tryTransferPinningState(final TickRegionScheduler.RegionScheduleHandle from, final TickRegionScheduler.RegionScheduleHandle to);
 +
 +        /**
 +         * Callback for two regions merging together
@@ -1364,7 +1364,7 @@ index 0000000000000000000000000000000000000000..9117dcfd4cdb5bbe3faa1cd3087cf9d0
 +         * @param region
 +         *     the region being destroyed
 +         */
-+        void onRegionDestroy(final ThreadedRegionizer.@NonNull ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData> region);
++        void onRegionDestroy(final ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData> region);
 +
 +        /**
 +         * Callback for when a region is marked inactive
@@ -1372,7 +1372,7 @@ index 0000000000000000000000000000000000000000..9117dcfd4cdb5bbe3faa1cd3087cf9d0
 +         * @param region
 +         *     the region now being marked as inactive
 +         */
-+        void onRegionInactive(final ThreadedRegionizer.@NonNull ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData> region);
++        void onRegionInactive(final ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData> region);
 +    }
 +
 +    public record SchedulerInfo(
@@ -1399,7 +1399,7 @@ index 0000000000000000000000000000000000000000..9117dcfd4cdb5bbe3faa1cd3087cf9d0
 +        }
 +
 +        @Override
-+        public void tryTransferPinningState(final TickRegionScheduler.@NonNull RegionScheduleHandle from, final TickRegionScheduler.RegionScheduleHandle to) {
++        public void tryTransferPinningState(final TickRegionScheduler.RegionScheduleHandle from, final TickRegionScheduler.RegionScheduleHandle to) {
 +        }
 +
 +        @Override
@@ -1411,11 +1411,11 @@ index 0000000000000000000000000000000000000000..9117dcfd4cdb5bbe3faa1cd3087cf9d0
 +        }
 +
 +        @Override
-+        public void onRegionDestroy(final ThreadedRegionizer.@NonNull ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData> region) {
++        public void onRegionDestroy(final ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData> region) {
 +        }
 +
 +        @Override
-+        public void onRegionInactive(final ThreadedRegionizer.@NonNull ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData> region) {
++        public void onRegionInactive(final ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData> region) {
 +        }
 +    }
 +
@@ -1430,23 +1430,30 @@ index 0000000000000000000000000000000000000000..9117dcfd4cdb5bbe3faa1cd3087cf9d0
 +        public boolean isRunningRegionProfilerOnThread(final long threadId, final String threadName) {
 +            final RegionProfiler.ProfilingState state = RegionProfiler.STATE.get();
 +            if (state != null) {
-+                AffinitySchedulerThreadPool.TickThreadRunner threadRunner = state.threadRunner();
++                final AffinitySchedulerThreadPool.TickThreadRunner threadRunner = state.threadRunner();
 +                return threadRunner.getRunnerThread().getName().equalsIgnoreCase(threadName);
 +            }
++            // not running region profiler
 +            return false;
 +        }
 +
 +        @Override
-+        public void tryTransferPinningState(final TickRegionScheduler.@NonNull RegionScheduleHandle from, final TickRegionScheduler.RegionScheduleHandle to) {
++        public void tryTransferPinningState(final TickRegionScheduler.RegionScheduleHandle from, final TickRegionScheduler.RegionScheduleHandle to) {
 +            final RegionProfiler.ProfilingState state = RegionProfiler.STATE.get();
++
 +            if (state == null || state.regionScheduleHandle() != from) {
++                // not running region profiler or not correct schedule handle
 +                return;
 +            }
++
 +            // if we made it here, the "from" is the profiling region currently. we COULD be on the owning tick runner,
 +            // however this can be done async(which is mean) so we just get the thread from the state
-+            AffinitySchedulerThreadPool.TickThreadRunner threadRunner = state.threadRunner();
-+            // if not linked to the previous, don't try and change
-+            if (!threadRunner.isLinkedTo(from)) return;
++            final AffinitySchedulerThreadPool.TickThreadRunner threadRunner = state.threadRunner();
++            if (!threadRunner.isLinkedTo(from)) {
++                // not linked to previous handle, don't change
++                return;
++            }
++
 +            threadRunner.unlink();
 +            threadRunner.link(to, true);
 +        }
@@ -1454,9 +1461,18 @@ index 0000000000000000000000000000000000000000..9117dcfd4cdb5bbe3faa1cd3087cf9d0
 +        @Override
 +        public void onRegionMerge(final TickRegions.TickRegionData from, final TickRegions.TickRegionData to, final ServerLevel level) {
 +            final RegionProfiler.ProfilingState state = RegionProfiler.STATE.get();
-+            if (state == null) return;
-+            AffinitySchedulerThreadPool.TickThreadRunner threadRunner = state.threadRunner();
-+            if (!threadRunner.isLinkedTo(from.tickHandle)) return;
++
++            if (state == null) {
++                // not running region profiler
++                return;
++            }
++
++            final AffinitySchedulerThreadPool.TickThreadRunner threadRunner = state.threadRunner();
++            if (!threadRunner.isLinkedTo(from.tickHandle)) {
++                // not linked to handle, not correct runner
++                return;
++            }
++
 +            tryTransferPinningState(from.tickHandle, to.tickHandle);
 +        }
 +
@@ -1464,31 +1480,56 @@ index 0000000000000000000000000000000000000000..9117dcfd4cdb5bbe3faa1cd3087cf9d0
 +        //       then it wouldn't be a global tick, it would be a region tick we are profiling
 +        //       because the global tick can't call split
 +        @Override
-+        public void onRegionSplit(final TickRegions.TickRegionData from, final Long2ReferenceOpenHashMap<ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData>> into, final ServerLevel level) {
++        public void onRegionSplit(
++            final TickRegions.TickRegionData from,
++            final Long2ReferenceOpenHashMap<ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData>> into,
++            final ServerLevel level
++        ) {
 +            final RegionProfiler.ProfilingState state = RegionProfiler.STATE.get();
-+            if (state == null) return;
-+            AffinitySchedulerThreadPool.TickThreadRunner threadRunner = state.threadRunner();
-+            if (!threadRunner.isLinkedTo(from.tickHandle)) return;
-+            ChunkPos center = ((RegionScheduleHandlePinner.RegionPinner) state.handlePinner()).getCenter();
++
++            if (state == null) {
++                // not running region profiler
++                return;
++            }
++
++            final AffinitySchedulerThreadPool.TickThreadRunner threadRunner = state.threadRunner();
++            if (!threadRunner.isLinkedTo(from.tickHandle)) {
++                // not linked to handle, not correct runner
++                return;
++            }
++
++            // casting to region pinner is safe because the global tick can't split
++            final ChunkPos center = ((RegionScheduleHandlePinner.RegionPinner) state.handlePinner()).getCenter();
 +            tryTransferPinningState(from.tickHandle, into.get(center.longKey()).getData().tickHandle);
 +        }
 +
 +        // both destroy and inactive only happen on split and merge
 +        @Override
-+        public void onRegionDestroy(final ThreadedRegionizer.@NonNull ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData> region) {
++        public void onRegionDestroy(
++            final ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData> region
++        ) {
 +            tryDestroyLink(region);
 +        }
 +
 +        @Override
-+        public void onRegionInactive(final ThreadedRegionizer.@NonNull ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData> region) {
++        public void onRegionInactive(
++            final ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData> region
++        ) {
 +            tryDestroyLink(region);
 +        }
 +
-+        private void tryDestroyLink(final ThreadedRegionizer.@NonNull ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData> region) {
++        private void tryDestroyLink(
++            final ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData> region
++        ) {
 +            final TickRegions.TickRegionData data = region.getData();
 +            final RegionProfiler.ProfilingState state = RegionProfiler.STATE.get();
-+            if (state == null) return;
-+            AffinitySchedulerThreadPool.TickThreadRunner threadRunner = state.threadRunner();
++
++            if (state == null) {
++                // not running region profiler
++                return;
++            }
++
++            final AffinitySchedulerThreadPool.TickThreadRunner threadRunner = state.threadRunner();
 +            if (data.tickHandle.state != null && threadRunner.isLinkedTo(data.tickHandle)) {
 +                threadRunner.unlink();
 +            }
@@ -1497,32 +1538,26 @@ index 0000000000000000000000000000000000000000..9117dcfd4cdb5bbe3faa1cd3087cf9d0
 +}
 diff --git a/io/canvasmc/canvas/threadedregions/ServerRegionTickManager.java b/io/canvasmc/canvas/threadedregions/ServerRegionTickManager.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..8f62811e6a26d98cfcdf80ae96f65267155af3ac
+index 0000000000000000000000000000000000000000..ffe40224484e97fdcf53e9b6c073ac7fa14a64a1
 --- /dev/null
 +++ b/io/canvasmc/canvas/threadedregions/ServerRegionTickManager.java
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,87 @@
 +package io.canvasmc.canvas.threadedregions;
 +
 +import io.canvasmc.canvas.region.RegionThreadingTickManager;
++import io.canvasmc.canvas.util.Util;
 +import io.papermc.paper.threadedregions.RegionizedServer;
 +import io.papermc.paper.threadedregions.TickRegionScheduler;
 +import java.util.Objects;
 +import org.bukkit.Chunk;
 +import org.bukkit.craftbukkit.CraftWorld;
 +import org.jetbrains.annotations.ApiStatus;
-+import org.jspecify.annotations.NonNull;
 +
 +// this class is literally just an abstraction layer between the Bukkit API and Canvas internals
 +@ApiStatus.Internal
 +public class ServerRegionTickManager implements RegionThreadingTickManager {
 +
 +    public static final ServerRegionTickManager API_INSTANCE = new ServerRegionTickManager();
-+
-+    public static void ensureScheduleHandle(final TickRegionScheduler.RegionScheduleHandle handle, final String reason) {
-+        if (handle != TickRegionScheduler.getCurrentTickingTask()) {
-+            throw new IllegalStateException(reason);
-+        }
-+    }
 +
 +    @Override
 +    public float getTickRate() {
@@ -1534,9 +1569,8 @@ index 0000000000000000000000000000000000000000..8f62811e6a26d98cfcdf80ae96f65267
 +        TickRegionScheduler.setTickRate(newRate);
 +    }
 +
-+    @NonNull
 +    @Override
-+    public RegionHandle getHandleAt(final @NonNull Chunk chunk) {
++    public RegionHandle getHandleAt(final Chunk chunk) {
 +        return new ServerRegionHandle(
 +            Objects.requireNonNull(((CraftWorld) chunk.getWorld()).getHandle().regioniser.getRegionAtUnsynchronised(chunk.getX(), chunk.getZ()), "Region not present at location")
 +                .getData()
@@ -1545,7 +1579,6 @@ index 0000000000000000000000000000000000000000..8f62811e6a26d98cfcdf80ae96f65267
 +        );
 +    }
 +
-+    @NonNull
 +    @Override
 +    public RegionHandle getGlobalRegionHandle() {
 +        return new ServerRegionHandle(RegionizedServer.getGlobalTickData().getTickManager());
@@ -1585,20 +1618,20 @@ index 0000000000000000000000000000000000000000..8f62811e6a26d98cfcdf80ae96f65267
 +
 +        @Override
 +        public boolean doesRunGameElements() {
-+            ensureScheduleHandle(state.scheduleHandle, "Can only check if running game elements on owning schedule handle");
++            Util.ensureScheduleHandle(state.scheduleHandle, "Can only check if running game elements on owning schedule handle");
 +            return state.doesRunGameElements();
 +        }
 +
 +        @Override
 +        public boolean isSprinting() {
-+            ensureScheduleHandle(state.scheduleHandle, "Can only check if actively sprinting on owning schedule handle");
++            Util.ensureScheduleHandle(state.scheduleHandle, "Can only check if actively sprinting on owning schedule handle");
 +            return state.isSprinting();
 +        }
 +    }
 +}
 diff --git a/io/canvasmc/canvas/threadedregions/WorldShutdownThread.java b/io/canvasmc/canvas/threadedregions/WorldShutdownThread.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..dbd9283ca99b1338e6127faab176d8fdc660ae5a
+index 0000000000000000000000000000000000000000..ef4dc83432cca48149d5109c01e04843957b477f
 --- /dev/null
 +++ b/io/canvasmc/canvas/threadedregions/WorldShutdownThread.java
 @@ -0,0 +1,199 @@
@@ -1619,7 +1652,6 @@ index 0000000000000000000000000000000000000000..dbd9283ca99b1338e6127faab176d8fd
 +import net.minecraft.server.level.ServerLevel;
 +import net.minecraft.server.level.ServerPlayer;
 +import org.bukkit.event.player.PlayerKickEvent;
-+import org.jspecify.annotations.NonNull;
 +import org.slf4j.Logger;
 +
 +public class WorldShutdownThread extends RegionShutdownThread {
@@ -1630,43 +1662,28 @@ index 0000000000000000000000000000000000000000..dbd9283ca99b1338e6127faab176d8fd
 +    private final ServerLevel level;
 +    private final Supplier<List<ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData>>> theWaiter;
 +
-+    private static void teleportPlayer(
-+        final @NonNull ServerPlayer entityPlayer,
-+        final @NonNull ServerLocation target
-+    ) {
-+        Preconditions.checkNotNull(target.pos(), "Target position not defined");
-+        entityPlayer.teleportAsync(
-+            target.level(),
-+            target.pos(),
-+            // note: yaw and pitch CAN be null in the ServerLocation instance, this is ok, this is handled
-+            //       by the teleportAsync function
-+            target.yaw(), target.pitch(),
-+            null, // don't care about velocity
-+            org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.UNKNOWN,
-+            net.minecraft.world.entity.Entity.TELEPORT_FLAG_LOAD_CHUNK,
-+            null, // we don't need a callback
-+            false // do not call events for this, too unsafe
-+        );
-+    }
-+
 +    public WorldShutdownThread(
-+        final @NonNull ServerLevel level,
++        final ServerLevel level,
 +        final Supplier<List<ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData>>> theWaiter
 +    ) {
 +        final String worldName = Util.getLevelName(level);
 +
 +        super(worldName + " shutdown thread");
 +        this.setUncaughtExceptionHandler((_, thrown) -> {
-+            LOGGER.error("Error shutting down world {}", worldName, thrown);
-+            MinecraftServer.getServer().stopServer();
++
++            // we have to schedule to the global tick for this, since this
++            // is a WORLD shutdown thread, not the server shutdown thread,
++            // and as such it will cause shutdown of the server to occur
++            // on this thread if not scheduled, so we schedule to the global
++            // tick to ensure shutdown is executed on the proper thread
++
++            LOGGER.error("Error shutting down world {}, alerting global tick to shutdown", worldName, thrown);
++            RegionizedServer.getInstance().addTask(MinecraftServer.getServer()::stopServer);
 +        });
 +
 +        this.debugName = worldName;
 +        this.level = level;
 +        this.theWaiter = theWaiter;
-+
-+        // we set this because frankly, we don't want to log everything
-+        // super.LOGGER = new SilentLogger(); // TODO - we just want errors only
 +    }
 +
 +    private String getWorldName() {
@@ -1727,37 +1744,37 @@ index 0000000000000000000000000000000000000000..dbd9283ca99b1338e6127faab176d8fd
 +
 +        int fixedPlayers = 0;
 +
-+        for (ServerPlayer localPlayer : this.level.players()) {
-+            io.canvasmc.canvas.util.ServerLocation lastTeleportPos = localPlayer.canvas$lastTeleportOrigin;
++        for (final ServerPlayer worldPlayer : this.level.players()) {
++            final ServerLocation lastTeleportPos = worldPlayer.canvas$lastTeleportOrigin;
 +
 +            // inc fixed players, we are fixing any players that are in this list
 +            fixedPlayers += 1;
 +
 +            if (lastTeleportPos == null) {
 +                LOGGER.warn("Player doesn't contain teleport origin, kicking");
-+                localPlayer.connection.disconnect(Component.literal("Destination world is unloading"), PlayerKickEvent.Cause.UNKNOWN);
++                worldPlayer.connection.disconnect(Component.literal("Destination world is unloading"), PlayerKickEvent.Cause.UNKNOWN);
 +                continue;
 +            }
 +
 +            // the teleport origin methods should never have null return values
-+            teleportPlayer(localPlayer, lastTeleportPos);
++            teleportPlayer(worldPlayer, lastTeleportPos);
 +        }
 +
-+        for (final ServerPlayer entityPlayer : MinecraftServer.getServer().getPlayerList().getPlayers()) {
-+            ServerLevel teleportingToDimension = entityPlayer.canvas$teleportingToDimension;
-+            ServerLocation teleportingFrom = entityPlayer.canvas$lastTeleportOrigin;
++        for (final ServerPlayer player : MinecraftServer.getServer().getPlayerList().getPlayers()) {
++            final ServerLevel teleportingToDimension = player.canvas$teleportingToDimension;
++            final ServerLocation teleportingFrom = player.canvas$lastTeleportOrigin;
 +
 +            if (teleportingToDimension != null && teleportingFrom != null && teleportingToDimension == this.level) {
 +                // someone is trying to teleport here... no
 +
-+                if (entityPlayer.isRemoved()) {
-+                    teleportPlayer(entityPlayer, teleportingFrom);
++                if (player.isRemoved()) {
++                    teleportPlayer(player, teleportingFrom);
 +                }
 +                else {
 +                    // if the player isn't removed yet, they are still processing
 +                    // the initial teleport/portal, so we should delay this a bit
 +                    RegionizedServer.getInstance().blockOn(() -> {
-+                        teleportPlayer(entityPlayer, teleportingFrom);
++                        teleportPlayer(player, teleportingFrom);
 +                    });
 +                }
 +
@@ -1800,13 +1817,29 @@ index 0000000000000000000000000000000000000000..dbd9283ca99b1338e6127faab176d8fd
 +
 +        this.level.canvas$unloadTicket.getOrThrow().callback().accept(io.canvasmc.canvas.WorldUnloadResult.SUCCESS);
 +    }
++
++    private static void teleportPlayer(final ServerPlayer entityPlayer, final ServerLocation target) {
++        Preconditions.checkNotNull(target.pos(), "Target position not defined");
++        entityPlayer.teleportAsync(
++            target.level(),
++            target.pos(),
++            // note: yaw and pitch CAN be null in the ServerLocation instance, this is ok, this is handled
++            //       by the teleportAsync function
++            target.yaw(), target.pitch(),
++            null, // don't care about velocity
++            org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.UNKNOWN,
++            net.minecraft.world.entity.Entity.TELEPORT_FLAG_LOAD_CHUNK,
++            null, // we don't need a callback
++            false // do not call events for this, too unsafe
++        );
++    }
 +}
 diff --git a/io/canvasmc/canvas/threadedregions/commands/AbstractCommandExecution.java b/io/canvasmc/canvas/threadedregions/commands/AbstractCommandExecution.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..7055390babc4af7e460127b6b52f87630db3e3b8
+index 0000000000000000000000000000000000000000..ad7154861d32221da35a72e8d203bbba8dd03a21
 --- /dev/null
 +++ b/io/canvasmc/canvas/threadedregions/commands/AbstractCommandExecution.java
-@@ -0,0 +1,303 @@
+@@ -0,0 +1,314 @@
 +package io.canvasmc.canvas.threadedregions.commands;
 +
 +import ca.spottedleaf.concurrentutil.util.Priority;
@@ -1836,10 +1869,15 @@ index 0000000000000000000000000000000000000000..7055390babc4af7e460127b6b52f8763
 +import net.minecraft.world.level.Level;
 +import net.minecraft.world.phys.Vec3;
 +import org.jetbrains.annotations.Contract;
-+import org.jspecify.annotations.NonNull;
++import org.jetbrains.annotations.Nullable;
++import org.jetbrains.annotations.UnknownNullability;
 +
-+public class AbstractCommandExecution<R, E extends Entity> {
++@SuppressWarnings({"UnusedReturnValue", "unused"})
++public class AbstractCommandExecution<D, E extends Entity> {
 +
++    public static final DynamicCommandExceptionType CANNOT_DO_X_CROSS_REGION = new DynamicCommandExceptionType(
++        action -> Component.literal("Cannot " + action + " cross-region")
++    );
 +    protected static final DynamicCommandExceptionType INVALID_EXECUTION = new DynamicCommandExceptionType(
 +        type -> Component.literal("Invalid execution arguments provided. Forgot to provide \"" + type + "\" argument")
 +    );
@@ -1847,38 +1885,42 @@ index 0000000000000000000000000000000000000000..7055390babc4af7e460127b6b52f8763
 +        type -> Component.literal("Already provided \"" + type + "\" argument to execution constructor")
 +    );
 +
-+    public static final DynamicCommandExceptionType CANNOT_DO_X_CROSS_REGION = new DynamicCommandExceptionType(
-+        action -> Component.literal("Cannot " + action + " cross-region")
-+    );
++    private final LockedReference<D> dataInstance;
++    private final CanonicalReference<CSETriObject2IntFunction<D, List<? extends E>, CommandSourceStack>> complete;
++    private final CanonicalReference<CSEFunction<E, Function<D, D>>> commandAction;
++    private final CanonicalReference<List<? extends E>> targets;
 +
-+    final LockedReference<R> dataInstance;
-+    final CanonicalReference<CSETriObject2IntFunction<R, List<? extends E>, CommandSourceStack>> complete;
-+    final CanonicalReference<CSEFunction<E, Function<R, R>>> commandAction;
-+    final CanonicalReference<List<? extends E>> targets;
-+
-+    AbstractCommandExecution(final R dataInstance) {
-+        this.dataInstance = new LockedReference<>(dataInstance);
++    private AbstractCommandExecution(final @Nullable D dataInstance) {
++        this.dataInstance = dataInstance == null ? new LockedReference<>() : new LockedReference<>(dataInstance);
 +        this.complete = new CanonicalReference<>();
 +        this.commandAction = new CanonicalReference<>();
 +        this.targets = new CanonicalReference<>();
 +    }
 +
-+    public static int executeAtPosWithRadius(final @NonNull CSEIntSupplier action, final @NonNull Vec3 pos, final int radius, final Level level, final CommandSourceStack css) {
++    public static int executeAtPosWithRadius(
++        final CSEIntSupplier action, final Vec3 pos, final int radius, final Level level, final CommandSourceStack css
++    ) {
 +        return executeAtPosWithRadius(action, BlockPos.containing(pos), radius, level, css);
 +    }
 +
-+    public static int executeAtPosWithRadius(final CSERunnable action, final @NonNull Vec3 pos, final int radius, final Level level, final CommandSourceStack css) {
++    public static int executeAtPosWithRadius(
++        final CSERunnable action, final Vec3 pos, final int radius, final Level level, final CommandSourceStack css
++    ) {
 +        return executeAtPosWithRadius(action, BlockPos.containing(pos), radius, level, css);
 +    }
 +
-+    public static int executeAtPosWithRadius(final CSERunnable action, final @NonNull BlockPos pos, final int radius, final @NonNull Level level, final CommandSourceStack css) {
++    public static int executeAtPosWithRadius(
++        final CSERunnable action, final BlockPos pos, final int radius, final Level level, final CommandSourceStack css
++    ) {
 +        return executeAtPosWithRadius(() -> {
 +            action.act();
 +            return Command.SINGLE_SUCCESS;
 +        }, pos, radius, level, css);
 +    }
 +
-+    public static int executeAtPosWithRadius(final @NonNull CSEIntSupplier action, final @NonNull BlockPos pos, final int radius, final @NonNull Level level, final CommandSourceStack css) {
++    public static int executeAtPosWithRadius(
++        final CSEIntSupplier action, final BlockPos pos, final int radius, final Level level, final CommandSourceStack css
++    ) {
 +        level.canvas$loadOrRunAtChunksAsync(
 +            pos, radius, Priority.NORMAL, () -> {
 +                try {
@@ -1891,22 +1933,30 @@ index 0000000000000000000000000000000000000000..7055390babc4af7e460127b6b52f8763
 +        return Command.SINGLE_SUCCESS;
 +    }
 +
-+    public static int executeAtPos(final CSERunnable action, final @NonNull Vec3 pos, final Level level, final CommandSourceStack css) {
++    public static int executeAtPos(
++        final CSERunnable action, final Vec3 pos, final Level level, final CommandSourceStack css
++    ) {
 +        return executeAtPos(action, BlockPos.containing(pos), level, css);
 +    }
 +
-+    public static int executeAtPos(final CSEIntSupplier action, final @NonNull Vec3 pos, final Level level, final CommandSourceStack css) {
++    public static int executeAtPos(
++        final CSEIntSupplier action, final Vec3 pos, final Level level, final CommandSourceStack css
++    ) {
 +        return executeAtPos(action, BlockPos.containing(pos), level, css);
 +    }
 +
-+    public static int executeAtPos(final CSERunnable action, final @NonNull BlockPos pos, final Level level, final CommandSourceStack css) {
++    public static int executeAtPos(
++        final CSERunnable action, final BlockPos pos, final Level level, final CommandSourceStack css
++    ) {
 +        return executeAtPos(() -> {
 +            action.act();
 +            return Command.SINGLE_SUCCESS;
 +        }, pos, level, css);
 +    }
 +
-+    public static int executeAtPos(final CSEIntSupplier action, final @NonNull BlockPos pos, final Level level, final CommandSourceStack css) {
++    public static int executeAtPos(
++        final CSEIntSupplier action, final BlockPos pos, final Level level, final CommandSourceStack css
++    ) {
 +        RegionizedServer.getInstance().taskQueue.queueOrExecuteTickTask(
 +            (ServerLevel) level,
 +            pos.getX() >> 4,
@@ -1940,53 +1990,48 @@ index 0000000000000000000000000000000000000000..7055390babc4af7e460127b6b52f8763
 +        return Command.SINGLE_SUCCESS;
 +    }
 +
-+    @NonNull
 +    @Contract("_ -> new")
-+    public static <R, E extends Entity> AbstractCommandExecution<R, E> _abstract(final R _default) {
++    public static <R, E extends Entity> AbstractCommandExecution<R, E> _abstract(final @UnknownNullability R _default) {
 +        return new AbstractCommandExecution<>(_default);
 +    }
 +
-+    @NonNull
 +    @Contract("_ -> new")
 +    public static <E extends Entity> AbstractCommandExecution<Boolean, E> _boolean(final boolean _default) {
 +        return _abstract(_default);
 +    }
 +
-+    @NonNull
 +    @Contract(" -> new")
 +    public static <E extends Entity> AbstractCommandExecution<Void, E> _void() {
 +        return _abstract(null);
 +    }
 +
-+    @NonNull
 +    @Contract(" -> new")
 +    public static <E extends Entity> AbstractCommandExecution<Integer, E> _int() {
 +        return _abstract(0);
 +    }
 +
-+    @NonNull
 +    @Contract(" -> new")
 +    public static <E extends Entity> AbstractCommandExecution<Long, E> _long() {
 +        return _abstract(0L);
 +    }
 +
-+    @NonNull
 +    @Contract(" -> new")
 +    public static <E extends Entity> AbstractCommandExecution<Double, E> _double() {
 +        return _abstract(0.0D);
 +    }
 +
-+    @NonNull
 +    @Contract(" -> new")
 +    public static <E extends Entity> AbstractCommandExecution<Float, E> _float() {
 +        return _abstract(0.0F);
 +    }
 +
-+    public AbstractCommandExecution<R, E> noCompletion() throws CommandSyntaxException {
++    public AbstractCommandExecution<D, E> noCompletion() throws CommandSyntaxException {
 +        return onComplete((_, _, _) -> Command.SINGLE_SUCCESS);
 +    }
 +
-+    public AbstractCommandExecution<R, E> onComplete(final CSETriObject2IntFunction<R, List<? extends E>, CommandSourceStack> complete) throws CommandSyntaxException {
++    public AbstractCommandExecution<D, E> onComplete(
++        final CSETriObject2IntFunction<D, List<? extends E>, CommandSourceStack> complete
++    ) throws CommandSyntaxException {
 +        if (this.complete.isSet()) {
 +            throw ALREADY_PROVIDED.create("on complete");
 +        }
@@ -1994,7 +2039,7 @@ index 0000000000000000000000000000000000000000..7055390babc4af7e460127b6b52f8763
 +        return this;
 +    }
 +
-+    public AbstractCommandExecution<R, E> executes(final CSEFunction<E, Function<R, R>> action) throws CommandSyntaxException {
++    public AbstractCommandExecution<D, E> executes(final CSEFunction<E, Function<D, D>> action) throws CommandSyntaxException {
 +        if (this.commandAction.isSet()) {
 +            throw ALREADY_PROVIDED.create("command action");
 +        }
@@ -2002,15 +2047,15 @@ index 0000000000000000000000000000000000000000..7055390babc4af7e460127b6b52f8763
 +        return this;
 +    }
 +
-+    public AbstractCommandExecution<R, E> with(final E singular) throws CommandSyntaxException {
++    public AbstractCommandExecution<D, E> with(final E singular) throws CommandSyntaxException {
 +        return with(List.of(singular));
 +    }
 +
-+    public AbstractCommandExecution<R, E> with(final @NonNull Stream<? extends E> targetsStream) throws CommandSyntaxException {
++    public AbstractCommandExecution<D, E> with(final Stream<? extends E> targetsStream) throws CommandSyntaxException {
 +        return with(targetsStream.toList());
 +    }
 +
-+    public AbstractCommandExecution<R, E> with(final Collection<? extends E> targets) throws CommandSyntaxException {
++    public AbstractCommandExecution<D, E> with(final Collection<? extends E> targets) throws CommandSyntaxException {
 +        if (this.targets.isSet()) {
 +            throw ALREADY_PROVIDED.create("targets");
 +        }
@@ -2071,7 +2116,6 @@ index 0000000000000000000000000000000000000000..7055390babc4af7e460127b6b52f8763
 +        }
 +    }
 +
-+    @NonNull
 +    private Consumer<E> constructAction(final CommandSourceStack sourceStack, final AtomicInteger count, final List<? extends E> targets) {
 +        final AtomicBoolean hasFailed = new AtomicBoolean(false);
 +
@@ -2083,7 +2127,7 @@ index 0000000000000000000000000000000000000000..7055390babc4af7e460127b6b52f8763
 +            }
 +
 +            try {
-+                final Function<R, R> dataModifier = this.commandAction.value().act(entity);
++                final Function<D, D> dataModifier = this.commandAction.value().act(entity);
 +                this.dataInstance.swapValue(dataModifier::apply);
 +            } catch (final Throwable uncaught) {
 +                hasFailed.set(true);
@@ -2112,21 +2156,19 @@ index 0000000000000000000000000000000000000000..7055390babc4af7e460127b6b52f8763
 +}
 diff --git a/io/canvasmc/canvas/threadedregions/commands/ExecutionCallbacks.java b/io/canvasmc/canvas/threadedregions/commands/ExecutionCallbacks.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..1b5647828279c1a6e07101eb27eb66d96e2f0e72
+index 0000000000000000000000000000000000000000..f0849a2eee66c8e01a08a5d1005c23054776c329
 --- /dev/null
 +++ b/io/canvasmc/canvas/threadedregions/commands/ExecutionCallbacks.java
-@@ -0,0 +1,213 @@
+@@ -0,0 +1,180 @@
 +package io.canvasmc.canvas.threadedregions.commands;
 +
 +import java.util.function.Function;
 +import org.jetbrains.annotations.Contract;
-+import org.jspecify.annotations.NonNull;
 +
 +@SuppressWarnings("unused")
 +public interface ExecutionCallbacks {
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static <A extends Number, B extends Number> Function<NumericPair<A, B>, NumericPair<A, B>> mapPairFirst(
 +        Function<A, ? extends Number> fa
 +    ) {
@@ -2134,7 +2176,6 @@ index 0000000000000000000000000000000000000000..1b5647828279c1a6e07101eb27eb66d9
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static <A extends Number, B extends Number> Function<NumericPair<A, B>, NumericPair<A, B>> mapPairSecond(
 +        Function<B, ? extends Number> fb
 +    ) {
@@ -2142,7 +2183,6 @@ index 0000000000000000000000000000000000000000..1b5647828279c1a6e07101eb27eb66d9
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static <A extends Number, B extends Number> Function<NumericPair<A, B>, NumericPair<A, B>> mapPairBoth(
 +        Function<A, ? extends Number> fa, Function<B, ? extends Number> fb
 +    ) {
@@ -2150,188 +2190,172 @@ index 0000000000000000000000000000000000000000..1b5647828279c1a6e07101eb27eb66d9
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static <A, B> Function<A, B> nothing() {
 +        //noinspection unchecked
 +        return (a) -> (B) a;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Integer, Integer> incrementInt() {
 +        return (a) -> a + 1;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Integer, Integer> decrement() {
 +        return (a) -> a - 1;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Integer, Integer> addInt(final int amount) {
 +        return (a) -> a + amount;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Integer, Integer> subtractInt(final int amount) {
 +        return (a) -> a - amount;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Integer, Integer> multiplyInt(final int amount) {
 +        return (a) -> a * amount;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Integer, Integer> divideInt(final int amount) {
 +        return (a) -> a / amount;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Long, Long> incrementLong() {
 +        return (a) -> a + 1L;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Long, Long> decrementLong() {
 +        return (a) -> a - 1L;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Long, Long> addLong(final long amount) {
 +        return (a) -> a + amount;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Long, Long> subtractLong(final long amount) {
 +        return (a) -> a - amount;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Long, Long> multiplyLong(final long amount) {
 +        return (a) -> a * amount;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Long, Long> divideLong(final long amount) {
 +        return (a) -> a / amount;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Float, Float> incrementFloat() {
 +        return (a) -> a + 1.0F;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Float, Float> decrementFloat() {
 +        return (a) -> a - 1.0F;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Float, Float> addFloat(final float amount) {
 +        return (a) -> a + amount;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Float, Float> subtractFloat(final float amount) {
 +        return (a) -> a - amount;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Float, Float> multiplyFloat(final float amount) {
 +        return (a) -> a * amount;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Float, Float> divideFloat(final float amount) {
 +        return (a) -> a / amount;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Double, Double> incrementDouble() {
 +        return (a) -> a + 1.0D;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Double, Double> decrementDouble() {
 +        return (a) -> a - 1.0D;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Double, Double> addDouble(final double amount) {
 +        return (a) -> a + amount;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Double, Double> subtractDouble(final double amount) {
 +        return (a) -> a - amount;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Double, Double> multiplyDouble(final double amount) {
 +        return (a) -> a * amount;
 +    }
 +
 +    @Contract(pure = true)
-+    @NonNull
 +    static Function<Double, Double> divideDouble(final double amount) {
 +        return (a) -> a / amount;
 +    }
 +
 +    record NumericPair<A extends Number, B extends Number>(A first, B second) {
 +
-+        @NonNull
 +        @Contract("_, _ -> new")
-+        public static <A extends Number, B extends Number> NumericPair<A, B> of(A first, B second) {
++        public static <A extends Number, B extends Number> NumericPair<A, B> of(final A first, final B second) {
 +            return new NumericPair<>(first, second);
 +        }
 +
-+        @NonNull
 +        @Contract("_ -> new")
 +        @SuppressWarnings("unchecked")
-+        public NumericPair<A, B> mapFirst(@NonNull Function<A, ? extends Number> f) {
++        public NumericPair<A, B> mapFirst(final Function<A, ? extends Number> f) {
 +            return new NumericPair<>((A) f.apply(this.first), this.second);
 +        }
 +
-+        @NonNull
 +        @Contract("_ -> new")
 +        @SuppressWarnings("unchecked")
-+        public NumericPair<A, B> mapSecond(@NonNull Function<B, ? extends Number> f) {
++        public NumericPair<A, B> mapSecond(final Function<B, ? extends Number> f) {
 +            return new NumericPair<>(this.first, (B) f.apply(this.second));
 +        }
 +
-+        @NonNull
 +        @Contract("_, _ -> new")
-+        public NumericPair<A, B> mapBoth(Function<A, ? extends Number> fa, Function<B, ? extends Number> fb) {
++        public NumericPair<A, B> mapBoth(final Function<A, ? extends Number> fa, final Function<B, ? extends Number> fb) {
 +            return mapFirst(fa).mapSecond(fb);
 +        }
 +    }
 +}
+diff --git a/io/canvasmc/canvas/threadedregions/commands/package-info.java b/io/canvasmc/canvas/threadedregions/commands/package-info.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..6aef9128633787de145054999648d8d2497ec088
+--- /dev/null
++++ b/io/canvasmc/canvas/threadedregions/commands/package-info.java
+@@ -0,0 +1,7 @@
++/**
++ * This package is dedicated to the ACE command system for region threading
++ */
++@NullMarked
++package io.canvasmc.canvas.threadedregions.commands;
++
++import org.jspecify.annotations.NullMarked;
 diff --git a/io/canvasmc/canvas/threadedregions/entities/EnderPearls.java b/io/canvasmc/canvas/threadedregions/entities/EnderPearls.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..848a399439f0b86902f0f626e0eeb40fb1d9dabb
+index 0000000000000000000000000000000000000000..8870783edd236a63380a6cdcb4a8251464a99d55
 --- /dev/null
 +++ b/io/canvasmc/canvas/threadedregions/entities/EnderPearls.java
 @@ -0,0 +1,239 @@
@@ -2345,6 +2369,7 @@ index 0000000000000000000000000000000000000000..848a399439f0b86902f0f626e0eeb40f
 +import io.canvasmc.canvas.GlobalConfiguration;
 +import io.canvasmc.canvas.util.Codecs;
 +import io.canvasmc.canvas.util.Util;
++import io.papermc.paper.threadedregions.RegionShutdownThread;
 +import java.util.ArrayList;
 +import java.util.List;
 +import java.util.Map;
@@ -2352,7 +2377,6 @@ index 0000000000000000000000000000000000000000..848a399439f0b86902f0f626e0eeb40f
 +import java.util.concurrent.ConcurrentHashMap;
 +import java.util.concurrent.CopyOnWriteArrayList;
 +import java.util.function.Function;
-+import io.papermc.paper.threadedregions.RegionShutdownThread;
 +import net.minecraft.nbt.CompoundTag;
 +import net.minecraft.resources.Identifier;
 +import net.minecraft.server.MinecraftServer;
@@ -2462,13 +2486,13 @@ index 0000000000000000000000000000000000000000..848a399439f0b86902f0f626e0eeb40f
 +    }
 +
 +    @Override
-+    public boolean equals(final Object obj) {
-+        return obj == this || obj instanceof EnderPearls other && this.pearls.equals(other.pearls);
++    public int hashCode() {
++        return pearls.hashCode();
 +    }
 +
 +    @Override
-+    public int hashCode() {
-+        return pearls.hashCode();
++    public boolean equals(final Object obj) {
++        return obj == this || obj instanceof EnderPearls other && this.pearls.equals(other.pearls);
 +    }
 +
 +    @Override
@@ -2576,16 +2600,18 @@ index 0000000000000000000000000000000000000000..848a399439f0b86902f0f626e0eeb40f
 +}
 diff --git a/io/canvasmc/canvas/threadedregions/entities/EntityMoveOutOfRegionException.java b/io/canvasmc/canvas/threadedregions/entities/EntityMoveOutOfRegionException.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..0cbc5c604ebeef302c860ed7b214268596d0d743
+index 0000000000000000000000000000000000000000..c64a86031794948da8564b23a98be091ab5a4cce
 --- /dev/null
 +++ b/io/canvasmc/canvas/threadedregions/entities/EntityMoveOutOfRegionException.java
-@@ -0,0 +1,38 @@
+@@ -0,0 +1,40 @@
 +package io.canvasmc.canvas.threadedregions.entities;
 +
 +import net.minecraft.world.entity.Entity;
 +import net.minecraft.world.entity.MoverType;
 +import net.minecraft.world.phys.Vec3;
++import org.jspecify.annotations.NullMarked;
 +
++@NullMarked
 +public final class EntityMoveOutOfRegionException extends RuntimeException {
 +    private final Entity entity;
 +    private final MoverType moverType;
@@ -2618,14 +2644,28 @@ index 0000000000000000000000000000000000000000..0cbc5c604ebeef302c860ed7b2142685
 +        return this;
 +    }
 +}
+diff --git a/io/canvasmc/canvas/threadedregions/package-info.java b/io/canvasmc/canvas/threadedregions/package-info.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..9cf204dc06fd2d22d73abe40b05695cc142d29c0
+--- /dev/null
++++ b/io/canvasmc/canvas/threadedregions/package-info.java
+@@ -0,0 +1,7 @@
++/**
++ * The root class containing all region threading classes created by CanvasMC
++ */
++@NullMarked
++package io.canvasmc.canvas.threadedregions;
++
++import org.jspecify.annotations.NullMarked;
 diff --git a/io/canvasmc/canvas/threadedregions/profiler/ByNameThreadGrouper.java b/io/canvasmc/canvas/threadedregions/profiler/ByNameThreadGrouper.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..2df2cbebd455b3a3465d8ecb68e168968610b0f5
+index 0000000000000000000000000000000000000000..2db8637c3e909ffb960152883e0789e7c82e80c4
 --- /dev/null
 +++ b/io/canvasmc/canvas/threadedregions/profiler/ByNameThreadGrouper.java
-@@ -0,0 +1,49 @@
+@@ -0,0 +1,50 @@
 +package io.canvasmc.canvas.threadedregions.profiler;
 +
++import com.google.common.collect.Sets;
 +import java.util.Map;
 +import java.util.Set;
 +import java.util.concurrent.ConcurrentHashMap;
@@ -2647,19 +2687,19 @@ index 0000000000000000000000000000000000000000..2df2cbebd455b3a3465d8ecb68e16896
 +    private final Map<String, Set<Long>> seen = new ConcurrentHashMap<>();
 +
 +    public String getGroup(final long threadId, final String threadName) {
-+        String cached = this.cache.get(threadId);
++        final String cached = this.cache.get(threadId);
 +        if (cached != null) {
 +            return cached;
 +        }
 +        else {
-+            Matcher matcher = PATTERN.matcher(threadName);
++            final Matcher matcher = PATTERN.matcher(threadName);
 +            if (!matcher.matches()) {
 +                return threadName;
 +            }
 +            else {
-+                String group = matcher.group(1).trim();
++                final String group = matcher.group(1).trim();
 +                this.cache.put(threadId, group);
-+                this.seen.computeIfAbsent(group, (g) -> ConcurrentHashMap.newKeySet()).add(threadId);
++                this.seen.computeIfAbsent(group, (_) -> Sets.newConcurrentHashSet()).add(threadId);
 +                return group;
 +            }
 +        }
@@ -2675,10 +2715,10 @@ index 0000000000000000000000000000000000000000..2df2cbebd455b3a3465d8ecb68e16896
 +}
 diff --git a/io/canvasmc/canvas/threadedregions/profiler/RegionProfiler.java b/io/canvasmc/canvas/threadedregions/profiler/RegionProfiler.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..68d001ccd590209cbdc418a9aeaf50ed574f3aad
+index 0000000000000000000000000000000000000000..6a36502399b2324fd6da56a6145552f7cd126dc6
 --- /dev/null
 +++ b/io/canvasmc/canvas/threadedregions/profiler/RegionProfiler.java
-@@ -0,0 +1,112 @@
+@@ -0,0 +1,115 @@
 +package io.canvasmc.canvas.threadedregions.profiler;
 +
 +import com.mojang.brigadier.exceptions.CommandSyntaxException;
@@ -2688,18 +2728,20 @@ index 0000000000000000000000000000000000000000..68d001ccd590209cbdc418a9aeaf50ed
 +import io.papermc.paper.threadedregions.TickRegionScheduler;
 +import io.papermc.paper.threadedregions.TickRegions;
 +import io.papermc.paper.util.MCUtil;
++import net.minecraft.network.chat.Component;
++import org.jspecify.annotations.Nullable;
 +import java.util.concurrent.atomic.AtomicReference;
 +import java.util.function.Consumer;
 +
 +public class RegionProfiler {
-+    private static final SimpleCommandExceptionType ERROR_ALREADY_PROFILING =
-+        new SimpleCommandExceptionType(net.minecraft.network.chat.Component.literal("Server already running a region profiler!"));
-+    private static final SimpleCommandExceptionType ERROR_NOT_PROFILING =
-+        new SimpleCommandExceptionType(net.minecraft.network.chat.Component.literal("Server isn't running a region profile currently!"));
-+    private static final SimpleCommandExceptionType ERROR_NOT_SUPPORTED =
-+        new SimpleCommandExceptionType(net.minecraft.network.chat.Component.literal("Region Specific Profiling(RSP) is unavailable during this runtime due to the active scheduler not supporting pinning at this time."));
++    public static final AtomicReference<@Nullable ProfilingState> STATE = new AtomicReference<>();
 +
-+    public static final AtomicReference<ProfilingState> STATE = new AtomicReference<>();
++    private static final SimpleCommandExceptionType ERROR_ALREADY_PROFILING =
++        new SimpleCommandExceptionType(Component.literal("Server already running a region profiler!"));
++    private static final SimpleCommandExceptionType ERROR_NOT_PROFILING =
++        new SimpleCommandExceptionType(Component.literal("Server isn't running a region profile currently!"));
++    private static final SimpleCommandExceptionType ERROR_NOT_SUPPORTED =
++        new SimpleCommandExceptionType(Component.literal("Region Specific Profiling(RSP) is unavailable during this runtime due to the active scheduler not supporting pinning at this time."));
 +
 +    public static boolean isProfiling() {
 +        return STATE.get() != null;
@@ -2736,7 +2778,8 @@ index 0000000000000000000000000000000000000000..68d001ccd590209cbdc418a9aeaf50ed
 +            state.handlePinner.unpin((_) -> {
 +                // note: calling curr tick runner is safe here, since this callback is guaranteed to be run
 +                //       on the schedule handle that is pinned, so we are on a tick runner
-+                AffinitySchedulerThreadPool.TickThreadRunner threadRunner = ((AffinitySchedulerThreadPool) TickRegions.getScheduler().scheduler).getCurrentTickThreadRunner();
++                final AffinitySchedulerThreadPool.TickThreadRunner threadRunner =
++                    ((AffinitySchedulerThreadPool) TickRegions.getScheduler().scheduler).getCurrentTickThreadRunner();
 +                threadRunner.unlink();
 +                sendMessage.accept("Completed profiler unpin and cleared state");
 +            });
@@ -2793,10 +2836,10 @@ index 0000000000000000000000000000000000000000..68d001ccd590209cbdc418a9aeaf50ed
 +}
 diff --git a/io/canvasmc/canvas/threadedregions/profiler/RegionScheduleHandlePinner.java b/io/canvasmc/canvas/threadedregions/profiler/RegionScheduleHandlePinner.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..fd8a33ab22a3f087a4e915fb6070389a0b537ca0
+index 0000000000000000000000000000000000000000..f318603ff77527f8c5326721ed4122ef4f84340e
 --- /dev/null
 +++ b/io/canvasmc/canvas/threadedregions/profiler/RegionScheduleHandlePinner.java
-@@ -0,0 +1,275 @@
+@@ -0,0 +1,279 @@
 +package io.canvasmc.canvas.threadedregions.profiler;
 +
 +import ca.spottedleaf.concurrentutil.scheduler.SchedulableTick;
@@ -2813,6 +2856,7 @@ index 0000000000000000000000000000000000000000..fd8a33ab22a3f087a4e915fb6070389a
 +import io.papermc.paper.threadedregions.TickRegions;
 +import it.unimi.dsi.fastutil.longs.LongArrayList;
 +import it.unimi.dsi.fastutil.longs.LongComparator;
++import java.util.Objects;
 +import java.util.function.BiConsumer;
 +import java.util.function.Consumer;
 +import net.minecraft.core.BlockPos;
@@ -2824,7 +2868,6 @@ index 0000000000000000000000000000000000000000..fd8a33ab22a3f087a4e915fb6070389a
 +import net.minecraft.world.level.ChunkPos;
 +import net.minecraft.world.level.border.WorldBorder;
 +import org.jetbrains.annotations.Contract;
-+import org.jspecify.annotations.NonNull;
 +import org.slf4j.Logger;
 +import org.slf4j.LoggerFactory;
 +
@@ -2888,7 +2931,8 @@ index 0000000000000000000000000000000000000000..fd8a33ab22a3f087a4e915fb6070389a
 +     */
 +    record RegionPinner(ColumnPos fromPos, ColumnPos toPos, ServerLevel level) implements RegionScheduleHandlePinner {
 +
-+        @NonNull
++        public static final Logger LOGGER = LoggerFactory.getLogger("SparkRegionPinner");
++
 +        @Contract(" -> new")
 +        public ChunkPos getCenter() {
 +            final LongArrayList chunks = LongArrayList.wrap(gatherChunksToProfile());
@@ -2916,54 +2960,55 @@ index 0000000000000000000000000000000000000000..fd8a33ab22a3f087a4e915fb6070389a
 +
 +        // note: this is unchecked, no validation of the border or chunk count
 +        public long[] gatherChunksToProfile() {
-+            LongArrayList ret = new LongArrayList();
++            final LongArrayList ret = new LongArrayList();
 +            // note: this is the BLOCK pos, not to be confused with the CHUNK pos
-+            int minX = Math.min(fromPos.x(), toPos.x());
-+            int minZ = Math.min(fromPos.z(), toPos.z());
-+            int maxX = Math.max(fromPos.x(), toPos.x());
-+            int maxZ = Math.max(fromPos.z(), toPos.z());
++            final int minX = Math.min(fromPos.x(), toPos.x());
++            final int minZ = Math.min(fromPos.z(), toPos.z());
++            final int maxX = Math.max(fromPos.x(), toPos.x());
++            final int maxZ = Math.max(fromPos.z(), toPos.z());
 +
 +            // convert to section coordinates
-+            int minChunkX = minX >> 4;
-+            int minChunkZ = minZ >> 4;
-+            int maxChunkX = maxX >> 4;
-+            int maxChunkZ = maxZ >> 4;
++            final int minChunkX = minX >> 4;
++            final int minChunkZ = minZ >> 4;
++            final int maxChunkX = maxX >> 4;
++            final int maxChunkZ = maxZ >> 4;
 +
 +            for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
 +                for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
 +                    ret.add(CoordinateUtils.getChunkKey(chunkX, chunkZ));
 +                }
 +            }
++
 +            return ret.toLongArray();
 +        }
 +
 +        @Override
 +        public void pin(final BiConsumer<TickRegionScheduler.RegionScheduleHandle, AffinitySchedulerThreadPool.TickThreadRunner> finalizer) throws CommandSyntaxException {
 +            // note: this is the BLOCK pos, not to be confused with the CHUNK pos
-+            int minX = Math.min(fromPos.x(), toPos.x());
-+            int minZ = Math.min(fromPos.z(), toPos.z());
-+            int maxX = Math.max(fromPos.x(), toPos.x());
-+            int maxZ = Math.max(fromPos.z(), toPos.z());
++            final int minX = Math.min(fromPos.x(), toPos.x());
++            final int minZ = Math.min(fromPos.z(), toPos.z());
++            final int maxX = Math.max(fromPos.x(), toPos.x());
++            final int maxZ = Math.max(fromPos.z(), toPos.z());
 +
 +            // convert to section coordinates
-+            int minChunkX = minX >> 4;
-+            int minChunkZ = minZ >> 4;
-+            int maxChunkX = maxX >> 4;
-+            int maxChunkZ = maxZ >> 4;
++            final int minChunkX = minX >> 4;
++            final int minChunkZ = minZ >> 4;
++            final int maxChunkX = maxX >> 4;
++            final int maxChunkZ = maxZ >> 4;
 +
 +            // validate level bounds
-+            WorldBorder border = level.getWorldBorder();
-+            double borderMinX = border.getMinX();
-+            double borderMinZ = border.getMinZ();
-+            double borderMaxX = border.getMaxX();
-+            double borderMaxZ = border.getMaxZ();
++            final WorldBorder border = level.getWorldBorder();
++            final double borderMinX = border.getMinX();
++            final double borderMinZ = border.getMinZ();
++            final double borderMaxX = border.getMaxX();
++            final double borderMaxZ = border.getMaxZ();
 +
 +            if (minX < borderMinX || minZ < borderMinZ || maxX > borderMaxX || maxZ > borderMaxZ) {
 +                throw ERROR_OUT_OF_WORLD.create();
 +            }
 +
 +            // validate chunk count
-+            long totalChunks = (long) (maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1);
++            final long totalChunks = (long) (maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1);
 +            if (totalChunks > 512L) { // keep a hard limit on this
 +                throw ERROR_TOO_MANY_CHUNKS.create(512L, totalChunks);
 +            }
@@ -2972,7 +3017,8 @@ index 0000000000000000000000000000000000000000..fd8a33ab22a3f087a4e915fb6070389a
 +            for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
 +                for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
 +                    final long longCoord = ((long) chunkZ << 32) | (chunkX & 0xFFFFFFFFL);
-+                    Ticket ticket = new Ticket(TicketType.REGION_PROFILING_HOLD, ChunkMap.FORCED_TICKET_LEVEL);
++                    //noinspection rawtypes
++                    final Ticket ticket = new Ticket(TicketType.REGION_PROFILING_HOLD, ChunkMap.FORCED_TICKET_LEVEL);
 +                    level.getChunkSource().ticketStorage.addTicket(longCoord, ticket);
 +                }
 +            }
@@ -3019,15 +3065,16 @@ index 0000000000000000000000000000000000000000..fd8a33ab22a3f087a4e915fb6070389a
 +                16,
 +                Priority.HIGHEST,
 +                () -> {
-+                    ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData> region = TickRegionScheduler.getCurrentRegion();
-+                    if (region == null)
-+                        throw new IllegalStateException("Region must be present at the profiling coordinates");
-+                    TickRegionScheduler.RegionScheduleHandle backendTask = region.getData().getRegionSchedulingHandle();
++                    final ThreadedRegionizer.ThreadedRegion<TickRegions.TickRegionData, TickRegions.TickRegionSectionData>
++                        region = TickRegionScheduler.getCurrentRegion();
++                    Objects.requireNonNull(region, "region must be present at the profiling coordinates");
++                    final TickRegionScheduler.RegionScheduleHandle backendTask = region.getData().getRegionSchedulingHandle();
 +                    finalizer.accept(backendTask);
 +                    // cleanup pinning, we need to do the following:
 +                    // - remove tickets (Note: we don't *need* to process ticket updates here, they will be done later)
 +                    // - clear PROFILING_CHUNKS
 +                    for (long longCoord : curr) {
++                        //noinspection rawtypes
 +                        Ticket ticket = new Ticket(TicketType.REGION_PROFILING_HOLD, ChunkMap.FORCED_TICKET_LEVEL);
 +                        level.getChunkSource().ticketStorage.removeTicket(longCoord, ticket);
 +                    }
@@ -3037,7 +3084,7 @@ index 0000000000000000000000000000000000000000..fd8a33ab22a3f087a4e915fb6070389a
 +
 +        @Override
 +        public Logger getLogger() {
-+            return LoggerFactory.getLogger("SparkRegionPinner");
++            return LOGGER;
 +        }
 +    }
 +
@@ -3048,33 +3095,33 @@ index 0000000000000000000000000000000000000000..fd8a33ab22a3f087a4e915fb6070389a
 +     * way to make it still accurate while also having this complete async
 +     */
 +    class GlobalTickPinner implements RegionScheduleHandlePinner {
++        public static final Logger LOGGER = LoggerFactory.getLogger("SparkGlobalPinner");
++
 +        @Override
 +        public void pin(final BiConsumer<TickRegionScheduler.RegionScheduleHandle, AffinitySchedulerThreadPool.TickThreadRunner> finalizer) {
-+            Runnable pinTask = () -> {
++            RegionizedServer.getInstance().scheduleToOrExecute(() -> {
 +                // note: calling curr tick runner here is safe since the runnable is executed on the global tick
 +                final TickRegionScheduler.RegionScheduleHandle schedulingHandle = RegionizedServer.getGlobalTickData();
 +                final AffinitySchedulerThreadPool.TickThreadRunner thread = ((AffinitySchedulerThreadPool) TickRegions.getScheduler().scheduler).getCurrentTickThreadRunner();
 +
 +                finalizer.accept(schedulingHandle, thread);
-+            };
-+            RegionizedServer.getInstance().scheduleToOrExecute(pinTask);
++            });
 +        }
 +
 +        @Override
-+        public void unpin(final @NonNull Consumer<SchedulableTick> finalizer) {
-+            TickRegionScheduler.RegionScheduleHandle schedulingHandle = RegionizedServer.getGlobalTickData();
-+            RegionizedServer.getInstance().scheduleToOrExecute(() -> finalizer.accept(schedulingHandle));
++        public void unpin(final Consumer<SchedulableTick> finalizer) {
++            RegionizedServer.getInstance().scheduleToOrExecute(() -> finalizer.accept(RegionizedServer.getGlobalTickData()));
 +        }
 +
 +        @Override
 +        public Logger getLogger() {
-+            return LoggerFactory.getLogger("SparkGlobalPinner");
++            return LOGGER;
 +        }
 +    }
 +}
 diff --git a/io/canvasmc/canvas/threadedregions/profiler/RegionThreadDumper.java b/io/canvasmc/canvas/threadedregions/profiler/RegionThreadDumper.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..52bf08d8a732f37561dd46c5d0694f644e125a5a
+index 0000000000000000000000000000000000000000..fbbd8bf4ed5a2617b54c648a4f0011450c2db107
 --- /dev/null
 +++ b/io/canvasmc/canvas/threadedregions/profiler/RegionThreadDumper.java
 @@ -0,0 +1,46 @@
@@ -3103,6 +3150,11 @@ index 0000000000000000000000000000000000000000..52bf08d8a732f37561dd46c5d0694f64
 +    private final Pattern regionThreadNamePattern = Pattern.compile("Folia Region Scheduler Thread #\\d+", Pattern.CASE_INSENSITIVE);
 +
 +    @Override
++    public ThreadInfo[] dumpThreads(final ThreadMXBean threadBean) {
++        return this.threadFinder.getThreads().filter((thread) -> this.isThreadIncluded(thread.threadId(), thread.getName())).map((thread) -> threadBean.getThreadInfo(thread.threadId(), Integer.MAX_VALUE)).filter(Objects::nonNull).toArray(ThreadInfo[]::new);
++    }
++
++    @Override
 +    public boolean isThreadIncluded(final long threadId, final String threadName) {
 +        if (SchedulerUtil.getHandle().isRunningRegionProfiler()) {
 +            return SchedulerUtil.getHandle().isRunningRegionProfilerOnThread(threadId, threadName);
@@ -3114,11 +3166,6 @@ index 0000000000000000000000000000000000000000..52bf08d8a732f37561dd46c5d0694f64
 +    }
 +
 +    @Override
-+    public ThreadInfo[] dumpThreads(final ThreadMXBean threadBean) {
-+        return this.threadFinder.getThreads().filter((thread) -> this.isThreadIncluded(thread.threadId(), thread.getName())).map((thread) -> threadBean.getThreadInfo(thread.threadId(), Integer.MAX_VALUE)).filter(Objects::nonNull).toArray(ThreadInfo[]::new);
-+    }
-+
-+    @Override
 +    public SparkSamplerProtos.SamplerMetadata.ThreadDumper getMetadata() {
 +        // SPECIFIC, WE ARE AN INTERCHANGEABLE SYSTEM
 +        return SparkSamplerProtos.SamplerMetadata.ThreadDumper.newBuilder().setType(SparkSamplerProtos.SamplerMetadata.ThreadDumper.Type.SPECIFIC).build();
@@ -3126,10 +3173,10 @@ index 0000000000000000000000000000000000000000..52bf08d8a732f37561dd46c5d0694f64
 +}
 diff --git a/io/canvasmc/canvas/threadedregions/profiler/package-info.java b/io/canvasmc/canvas/threadedregions/profiler/package-info.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..074fe7a907b0bdfbf44cd94d8307e9b47c8415b8
+index 0000000000000000000000000000000000000000..64f0e45eb4213ac153b56562acddf3b930d5a733
 --- /dev/null
 +++ b/io/canvasmc/canvas/threadedregions/profiler/package-info.java
-@@ -0,0 +1,150 @@
+@@ -0,0 +1,152 @@
 +/**
 + * <h1>Region Profiler V2</h1>
 + *
@@ -3276,16 +3323,18 @@ index 0000000000000000000000000000000000000000..074fe7a907b0bdfbf44cd94d8307e9b4
 + * @author Dueris
 + * @version 2.0
 + */
++@NullMarked
 +package io.canvasmc.canvas.threadedregions.profiler;
 +
 +import ca.spottedleaf.concurrentutil.util.Priority;
++import org.jspecify.annotations.NullMarked;
 +import java.util.function.Consumer;
 diff --git a/io/canvasmc/canvas/threadedregions/scheduler/AffinitySchedulerThreadPool.java b/io/canvasmc/canvas/threadedregions/scheduler/AffinitySchedulerThreadPool.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3eaab5a80
+index 0000000000000000000000000000000000000000..f2e4e4c33284935296a23a85d9b30b02484235ea
 --- /dev/null
 +++ b/io/canvasmc/canvas/threadedregions/scheduler/AffinitySchedulerThreadPool.java
-@@ -0,0 +1,716 @@
+@@ -0,0 +1,744 @@
 +package io.canvasmc.canvas.threadedregions.scheduler;
 +
 +import ca.spottedleaf.common.util.TimeUtil;
@@ -3310,24 +3359,30 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +import java.util.function.BooleanSupplier;
 +import net.openhft.affinity.Affinity;
 +import org.jetbrains.annotations.Contract;
++import org.jetbrains.annotations.UnknownNullability;
 +import org.jspecify.annotations.NonNull;
++import org.jspecify.annotations.NullMarked;
 +import org.jspecify.annotations.Nullable;
 +import org.slf4j.Logger;
 +import org.slf4j.LoggerFactory;
 +
 +/**
-+ * Scheduler thread pool implementation that uses EDF scheduling, based off {@link ca.spottedleaf.concurrentutil.scheduler.EDFSchedulerThreadPool}
++ * Scheduler thread pool implementation that uses EDF scheduling, based off
++ * {@link ca.spottedleaf.concurrentutil.scheduler.EDFSchedulerThreadPool}
 + * <p>
-+ *     Intermediate task execution is supported in this scheduler.
++ * Intermediate task execution is supported in this scheduler.
 + * </p>
 + * <p>
-+ *     NUMA aware scheduling is not supported in this scheduler.
++ * NUMA aware scheduling is not supported in this scheduler.
 + * </p>
 + * <p>
-+ *     CPU affinity is supported in this scheduler
++ * CPU affinity is supported in this scheduler
 + * </p>
++ *
 + * @author dueris, spottedleaf
 + */
++@SuppressWarnings("unused")
++@NullMarked
 +public final class AffinitySchedulerThreadPool extends Scheduler {
 +
 +    public static final long DEFAULT_STEAL_THRESH_MILLIS = 3L;
@@ -3397,7 +3452,9 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +        }
 +        else affinitySet = new BitSet();
 +        if (!affinitySet.isEmpty()) {
-+            if (affinitySet.cardinality() < threads) throw new IllegalArgumentException("Affinity setting needs 1 allocated core per tick thread");
++            if (affinitySet.cardinality() < threads) {
++                throw new IllegalArgumentException("Affinity setting needs 1 allocated core per tick thread");
++            }
 +            LOGGER.info("Affinity scheduler now bound to: {}", affinitySet);
 +        }
 +
@@ -3414,14 +3471,13 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +        this.runners = runners;
 +    }
 +
-+    @NonNull
-+    private BitSet getAffinity(int @NonNull [] affinity) {
++    private BitSet getAffinity(int[] affinity) {
 +        if (affinity.length == 0) {
 +            LOGGER.warn("No affinity set configured, backing off, logging CPU topology:\n{}", CpuInfoReport.gatherCPUReport());
 +            return new BitSet();
 +        }
-+        int maxAvailable = Runtime.getRuntime().availableProcessors();
-+        BitSet affinitySet = new BitSet(affinity.length);
++        final int maxAvailable = Runtime.getRuntime().availableProcessors();
++        final BitSet affinitySet = new BitSet(affinity.length);
 +        Arrays.stream(affinity)
 +            .distinct()
 +            .filter(cpuId -> {
@@ -3429,7 +3485,8 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +                if (cpuId == -1) return false;
 +                if (cpuId >= 0 && cpuId < maxAvailable) {
 +                    return true;
-+                } else {
++                }
++                else {
 +                    LOGGER.error("Invalid cpu id {}, ignoring.", cpuId);
 +                    return false;
 +                }
@@ -3444,15 +3501,71 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +        }
 +    }
 +
-+    @NonNull
 +    public TickThreadRunner getCurrentTickThreadRunner() {
-+        Thread curr = Thread.currentThread();
++        final Thread current = Thread.currentThread();
 +        for (final TickThreadRunner runner : this.runners) {
-+            if (runner.thread == curr) {
++            if (runner.thread == current) {
 +                return runner;
 +            }
 +        }
 +        throw new IllegalStateException("Not on tick runner");
++    }
++
++    private boolean join(final long msToWait, final boolean interruptible) throws InterruptedException {
++        final long nsToWait = TimeUnit.MILLISECONDS.toNanos(msToWait);
++        final long start = System.nanoTime();
++        final long deadline = start + nsToWait;
++        boolean interrupted = false;
++        try {
++            for (final Thread thread : this.threads) {
++                while (thread.isAlive()) {
++                    try {
++                        if (msToWait > 0L) {
++                            final long current = System.nanoTime();
++                            if (current - deadline >= 0L) {
++                                return false;
++                            }
++                            thread.join(Duration.ofNanos(deadline - current));
++                        }
++                        else {
++                            thread.join();
++                        }
++                    } catch (final InterruptedException ie) {
++                        if (interruptible) {
++                            throw ie;
++                        }
++                        interrupted = true;
++                    }
++                }
++            }
++
++            return true;
++        } finally {
++            if (interrupted) {
++                Thread.currentThread().interrupt();
++            }
++        }
++    }
++
++    public Thread[] getThreads() {
++        return this.threads.clone();
++    }
++
++    @Override
++    public Thread[] getAliveThreads() {
++        final List<Thread> ret = new ArrayList<>(this.threads.length);
++        for (final Thread thread : this.threads) {
++            if (thread.isAlive()) {
++                ret.add(thread);
++            }
++        }
++
++        return ret.toArray(new Thread[0]);
++    }
++
++    @Override
++    public Thread[] getCoreThreads() {
++        return this.getThreads();
 +    }
 +
 +    @Override
@@ -3478,64 +3591,46 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +        return this.join(msToWait, true);
 +    }
 +
-+    private boolean join(final long msToWait, final boolean interruptible) throws InterruptedException {
-+        final long nsToWait = TimeUnit.MILLISECONDS.toNanos(msToWait);
-+        final long start = System.nanoTime();
-+        final long deadline = start + nsToWait;
-+        boolean interrupted = false;
-+        try {
-+            for (final Thread thread : this.threads) {
-+                while (thread.isAlive()) {
-+                    try {
-+                        if (msToWait > 0L) {
-+                            final long current = System.nanoTime();
-+                            if (current - deadline >= 0L) {
-+                                return false;
-+                            }
-+                            thread.join(Duration.ofNanos(deadline - current));
-+                        } else {
-+                            thread.join();
-+                        }
-+                    } catch (final InterruptedException ex) {
-+                        if (interruptible) {
-+                            throw ex;
-+                        }
-+                        interrupted = true;
-+                    }
-+                }
++    @Override
++    public void schedule(final SchedulableTick task) {
++        synchronized (this.scheduleLock) {
++            final ScheduledState state = new ScheduledState(task);
++            if (!task.setState(state)) {
++                throw new IllegalStateException("Task " + task + " is already scheduled or cancelled");
 +            }
 +
-+            return true;
-+        } finally {
-+            if (interrupted) {
-+                Thread.currentThread().interrupt();
++            if (!state.tryMarkScheduled()) {
++                throw new IllegalStateException();
 +            }
++
++            state.schedulerOwnedBy = this;
++
++            this.insertFresh(state);
 +        }
 +    }
 +
-+    public Thread[] getThreads() {
-+        return this.threads.clone();
-+    }
-+
 +    @Override
-+    public Thread[] getCoreThreads() {
-+        return this.getThreads();
-+    }
++    public void notifyTasks(final SchedulableTick task) {
++        if (task.state == null) return;
++        final ScheduledState state = (ScheduledState) task.state;
++        final boolean changed = state.markedWithTasks.compareAndSet(false, true);
 +
-+    @Override
-+    public Thread @NonNull [] getAliveThreads() {
-+        final List<Thread> ret = new ArrayList<>(this.threads.length);
-+        for (final Thread thread : this.threads) {
-+            if (thread.isAlive()) {
-+                ret.add(thread);
-+            }
++        // try wake owner if present. if the thread is parking to wait
++        // until next tick, we can wake and have it run intermediate tasks
++
++        final TickThreadRunner owner = state.ownedBy;
++        if (changed && owner != null) {
++            LockSupport.unpark(owner.getRunnerThread());
 +        }
++    }
 +
-+        return ret.toArray(new Thread[0]);
++    @Override
++    public boolean cancel(final SchedulableTick task) {
++        throw new UnsupportedOperationException("Unsupported in AFFINITY Scheduler");
 +    }
 +
 +    @Nullable
-+    private ScheduledState poll(final @NonNull TickThreadRunner runner) {
++    private ScheduledState poll(final TickThreadRunner runner) {
 +        final long now = System.nanoTime();
 +
 +        final ScheduledState globalHead = globalQueue.peek();
@@ -3543,7 +3638,8 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +
 +        if (globalHead != null && globalHead == localHead) {
 +            throw new IllegalStateException("Global queue and local queue contain same element");
-+        } else {
++        }
++        else {
 +            // handle the local and/or global head being overdue already
 +            final boolean localOverdue = localHead != null && localHead.isOverdue(now);
 +            final boolean globalOverdue = globalHead != null && globalHead.isOverdue(now);
@@ -3551,7 +3647,8 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +                // we should pick the more urgent one
 +                if (TICK_COMPARATOR_BY_TIME.compare(localHead, globalHead) <= 0) {
 +                    return runner.localQueue.poll();
-+                } else return globalQueue.poll();
++                }
++                else return globalQueue.poll();
 +            }
 +            else if (localOverdue) {
 +                return runner.localQueue.poll();
@@ -3568,13 +3665,16 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +            if (TICK_COMPARATOR_BY_TIME.compare(localHead, globalHead) <= 0) {
 +                best = localHead;
 +                bestIsLocal = true;
-+            } else {
++            }
++            else {
 +                best = globalHead;
 +            }
-+        } else if (localHead != null) {
++        }
++        else if (localHead != null) {
 +            best = localHead;
 +            bestIsLocal = true;
-+        } else if (globalHead != null) {
++        }
++        else if (globalHead != null) {
 +            best = globalHead;
 +        }
 +
@@ -3620,19 +3720,24 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +        this.globalQueue.offer(task);
 +    }
 +
-+    private ScheduledState returnTask(final TickThreadRunner runner, final ScheduledState reschedule) {
++    @Nullable
++    private ScheduledState returnTask(final TickThreadRunner runner, final @Nullable ScheduledState reschedule) {
++        final SchedulableTick linkedToRunner = runner.linked;
++
++        // offer back to whichever queue owns this
 +        if (reschedule != null) {
 +            // we don't wanna send this to the queue if linked
-+            if (runner.linked == null || runner.linked.state == null || runner.linked.state != reschedule) {
++            if (linkedToRunner == null || linkedToRunner.state == null || linkedToRunner.state != reschedule) {
 +                if (enableWorkStealing) runner.localQueue.offer(reschedule);
 +                else globalQueue.offer(reschedule);
 +            }
 +        }
++
 +        // if linked, return that, don't even bother polling
 +        final ScheduledState ret;
-+        if (runner.linked != null && runner.linked.state != null) {
++        if (linkedToRunner != null && linkedToRunner.state != null) {
 +            // pinned
-+            ret = (ScheduledState) runner.linked.state;
++            ret = (ScheduledState) linkedToRunner.state;
 +        }
 +        else if (enableWorkStealing) {
 +            // not pinned, using work stealing
@@ -3642,7 +3747,8 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +            // not work stealing, not pinned, use global
 +            ret = globalQueue.poll();
 +        }
-+        if (ret == null && runner.linked == null) {
++
++        if (ret == null && linkedToRunner == null) {
 +            this.idleThreads.set(runner.id);
 +            final int s = runner.localQueue.size();
 +            if (s != 0) {
@@ -3653,65 +3759,29 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +        return ret;
 +    }
 +
-+    @Override
-+    public void schedule(final SchedulableTick task) {
-+        synchronized (this.scheduleLock) {
-+            final ScheduledState state = new ScheduledState(task);
-+            if (!task.setState(state)) {
-+                throw new IllegalStateException("Task " + task + " is already scheduled or cancelled");
-+            }
-+
-+            if (!state.tryMarkScheduled()) {
-+                throw new IllegalStateException();
-+            }
-+
-+            state.schedulerOwnedBy = this;
-+
-+            this.insertFresh(state);
-+        }
-+    }
-+
-+    @Override
-+    public boolean cancel(final @NonNull SchedulableTick task) {
-+        throw new UnsupportedOperationException("Unsupported in AFFINITY Scheduler");
-+    }
-+
-+    @Override
-+    public void notifyTasks(final @NonNull SchedulableTick task) {
-+        if (task.state == null) return;
-+        final ScheduledState state = (ScheduledState) task.state;
-+        final boolean changed = state.markedWithTasks.compareAndSet(false, true);
-+
-+        // try wake owner if present. if the thread is parking to wait
-+        // until next tick, we can wake and have it run intermediate tasks
-+
-+        final TickThreadRunner owner = state.ownedBy;
-+        if (changed && owner != null) {
-+            LockSupport.unpark(owner.getRunnerThread());
-+        }
-+    }
-+
 +    public static final class ScheduledState {
-+        private final SchedulableTick tick;
-+
 +        private static final int SCHEDULE_STATE_NOT_SCHEDULED = 0;
 +        private static final int SCHEDULE_STATE_SCHEDULED = 1;
 +        private static final int SCHEDULE_STATE_CANCELLED = 2;
 +
++        private final SchedulableTick tick;
 +        private final AtomicInteger scheduled = new AtomicInteger();
-+        private AffinitySchedulerThreadPool schedulerOwnedBy;
-+        private volatile TickThreadRunner ownedBy;
 +        private final AtomicBoolean markedWithTasks = new AtomicBoolean(false);
++
++        @Nullable
++        private AffinitySchedulerThreadPool schedulerOwnedBy;
++        @Nullable
++        private volatile TickThreadRunner ownedBy;
++
++        private ScheduledState(final SchedulableTick tick) {
++            this.tick = tick;
++        }
 +
 +        public boolean compareHasTasks() {
 +            if (markedWithTasks.getAndSet(false)) {
 +                return true;
 +            }
 +            return tick.hasTasks();
-+        }
-+
-+        private ScheduledState(final SchedulableTick tick) {
-+            this.tick = tick;
 +        }
 +
 +        private boolean tryMarkScheduled() {
@@ -3732,7 +3802,7 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +        }
 +
 +        public boolean isStealable(final long nanos) {
-+            return (this.tick.getScheduledStart() - nanos) + schedulerOwnedBy.stealThresh <= 0L;
++            return (this.tick.getScheduledStart() - nanos) + (schedulerOwnedBy == null ? 0L : schedulerOwnedBy.stealThresh) <= 0L;
 +        }
 +    }
 +
@@ -3770,20 +3840,29 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +         */
 +        private static final int STATE_EXECUTING_TASKS = 3;
 +
-+        public final int id;
-+        public final AffinitySchedulerThreadPool scheduler;
-+        private final int affinity;
-+
-+        private volatile Thread thread;
 +        @SuppressWarnings("FieldMayBeFinal") // we don't want this final since we control it via a var handle
 +        private volatile TickThreadRunnerState state = new TickThreadRunnerState(null, STATE_IDLE);
 +        private static final VarHandle STATE_HANDLE = ConcurrentUtil.getVarHandle(TickThreadRunner.class, "state", TickThreadRunnerState.class);
 +
++        public final int id;
++        public final AffinitySchedulerThreadPool scheduler;
++
++        private final int affinity;
 +        private final FastHeapPriorityQueue<ScheduledState> localQueue = new FastHeapPriorityQueue<>(20, TICK_COMPARATOR_BY_TIME, ScheduledState.class);
++
++        @UnknownNullability("null until the runner starts on a thread")
++        private volatile Thread thread;
++        @Nullable
 +        private volatile SchedulableTick linked;
 +
++        public TickThreadRunner(final int id, final AffinitySchedulerThreadPool scheduler, final int affinity) {
++            this.id = id;
++            this.scheduler = scheduler;
++            this.affinity = affinity;
++        }
++
 +        // if swapping, the one we are swapping with must be unscheduled
-+        public void link(final @NonNull SchedulableTick task, final boolean isSwapping) {
++        public void link(final SchedulableTick task, final boolean isSwapping) {
 +            synchronized (scheduler.scheduleLock) {
 +                if (!scheduler.linkingSupported.getAsBoolean()) {
 +                    throw new IllegalStateException("Linking not supported in this environment");
@@ -3812,7 +3891,7 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +        }
 +
 +        @Contract(pure = true)
-+        public boolean isLinkedTo(final @NonNull SchedulableTick from) {
++        public boolean isLinkedTo(final SchedulableTick from) {
 +            return from.state instanceof ScheduledState && from == this.linked;
 +        }
 +
@@ -3828,19 +3907,11 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +            STATE_HANDLE.setVolatile(this, state);
 +        }
 +
-+        private record TickThreadRunnerState(ScheduledState stateTarget, int state) {}
-+
-+        public TickThreadRunner(final int id, final AffinitySchedulerThreadPool scheduler, final int affinity) {
-+            this.id = id;
-+            this.scheduler = scheduler;
-+            this.affinity = affinity;
-+        }
-+
 +        public Thread getRunnerThread() {
 +            return this.thread;
 +        }
 +
-+        private void acceptTask(final @NonNull ScheduledState task) {
++        private void acceptTask(final ScheduledState task) {
 +            if (task.ownedBy != null) {
 +                throw new IllegalStateException("Already owned by another runner");
 +            }
@@ -3864,14 +3935,15 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +            }
 +        }
 +
-+        private void returnTask(final @NonNull ScheduledState task, final boolean reschedule) {
++        private void returnTask(final ScheduledState task, final boolean reschedule) {
 +            synchronized (this.scheduler.scheduleLock) {
 +                task.ownedBy = null;
 +
 +                final ScheduledState newWait = this.scheduler.returnTask(this, reschedule && task.isScheduled() ? task : null);
 +                if (newWait == null) {
 +                    this.setStatePlain(new TickThreadRunnerState(null, STATE_IDLE));
-+                } else {
++                }
++                else {
 +                    if (newWait.ownedBy != null) {
 +                        throw new IllegalStateException("Already owned by another runner");
 +                    }
@@ -3881,6 +3953,7 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +            }
 +        }
 +
++        @SuppressWarnings("UnnecessaryLabelOnContinueStatement")
 +        @Override
 +        public void run() {
 +            this.thread = Thread.currentThread();
@@ -3893,7 +3966,7 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +            for (;;) {
 +                final TickThreadRunnerState startState = this.state;
 +                final int startStateType = startState.state;
-+                final ScheduledState startStateTask =  startState.stateTarget;
++                final ScheduledState startStateTask = startState.stateTarget;
 +
 +                if (this.scheduler.halted) {
 +                    return;
@@ -3950,7 +4023,7 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +        }
 +
 +        // note: returns true if it should continue state loop
-+        private boolean waitUntilDeadline(final @NonNull ScheduledState startStateTask, final TickThreadRunnerState startState) {
++        private boolean waitUntilDeadline(final ScheduledState startStateTask, final TickThreadRunnerState startState) {
 +            final long deadline = startStateTask.tick.getScheduledStart();
 +            final long adjustedForRunBuffer = deadline - scheduler.runTaskBuff;
 +
@@ -3959,11 +4032,13 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +                    // state was changed unexpectedly(async?)
 +                    return true;
 +                }
++
 +                // check if we hit the deadline
 +                final long diff = deadline - System.nanoTime();
 +                if (diff <= 0L) {
 +                    break;
 +                }
++
 +                // haven't hit deadline yet, try tasks and then try park
 +                final TickThreadRunnerState runTasksState = new TickThreadRunnerState(startStateTask, STATE_EXECUTING_TASKS);
 +                if (
@@ -4000,14 +4075,16 @@ index 0000000000000000000000000000000000000000..b760dd2b2741f4ae7f6582892134eef3
 +        public String toString() {
 +            return "AffinityRunner#" + id;
 +        }
++
++        private record TickThreadRunnerState(@UnknownNullability("null when state is idle") ScheduledState stateTarget, int state) {}
 +    }
 +}
 diff --git a/io/canvasmc/canvas/threadedregions/scores/ObjectiveData.java b/io/canvasmc/canvas/threadedregions/scores/ObjectiveData.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..cbd06845b27e6e2634f915c9077add70d68dd7fb
+index 0000000000000000000000000000000000000000..65ff6d4f74d2ba7774149e441ec418d7d2443c04
 --- /dev/null
 +++ b/io/canvasmc/canvas/threadedregions/scores/ObjectiveData.java
-@@ -0,0 +1,98 @@
+@@ -0,0 +1,93 @@
 +package io.canvasmc.canvas.threadedregions.scores;
 +
 +import java.util.Optional;
@@ -4016,27 +4093,15 @@ index 0000000000000000000000000000000000000000..cbd06845b27e6e2634f915c9077add70
 +import net.minecraft.world.scores.Objective;
 +import net.minecraft.world.scores.criteria.ObjectiveCriteria;
 +import org.jetbrains.annotations.Contract;
-+import org.jspecify.annotations.NonNull;
 +import org.jspecify.annotations.Nullable;
 +
++@SuppressWarnings("UnusedReturnValue")
 +public class ObjectiveData {
 +    private Component formattedDisplayName;
 +    private ObjectiveCriteria.RenderType renderType;
 +    private boolean displayAutoUpdate;
 +    private @Nullable NumberFormat numberFormat;
 +    private Component displayName;
-+
-+    @NonNull
-+    @Contract("_ -> new")
-+    public static ObjectiveData copyOf(final @NonNull ObjectiveData toCopy) {
-+        return new ObjectiveData(
-+            toCopy.getFormattedDisplayName(),
-+            toCopy.getRenderType(),
-+            toCopy.doesDisplayAutoUpdate(),
-+            toCopy.getNumberFormat(),
-+            toCopy.getDisplayName()
-+        );
-+    }
 +
 +    public ObjectiveData(
 +        final Component formattedDisplayName,
@@ -4052,8 +4117,15 @@ index 0000000000000000000000000000000000000000..cbd06845b27e6e2634f915c9077add70
 +        this.displayName = displayName;
 +    }
 +
-+    public ObjectiveData() {
-+        // no-op
++    @Contract("_ -> new")
++    public static ObjectiveData copyOf(final ObjectiveData toCopy) {
++        return new ObjectiveData(
++            toCopy.getFormattedDisplayName(),
++            toCopy.getRenderType(),
++            toCopy.doesDisplayAutoUpdate(),
++            toCopy.getNumberFormat(),
++            toCopy.getDisplayName()
++        );
 +    }
 +
 +    public Component getDisplayName() {
@@ -4108,24 +4180,25 @@ index 0000000000000000000000000000000000000000..cbd06845b27e6e2634f915c9077add70
 +}
 diff --git a/io/canvasmc/canvas/threadedregions/scores/ReadOnlyScore.java b/io/canvasmc/canvas/threadedregions/scores/ReadOnlyScore.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..b60bdf07bd6c020167e82238c3e36c8b642035e3
+index 0000000000000000000000000000000000000000..4672875f4ab5b37547d0df83aef67a0622d3365a
 --- /dev/null
 +++ b/io/canvasmc/canvas/threadedregions/scores/ReadOnlyScore.java
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,36 @@
 +package io.canvasmc.canvas.threadedregions.scores;
 +
 +import net.minecraft.network.chat.numbers.NumberFormat;
 +import net.minecraft.world.scores.ReadOnlyScoreInfo;
 +import net.minecraft.world.scores.Score;
-+import org.jspecify.annotations.NonNull;
 +import org.jspecify.annotations.Nullable;
 +
 +public final class ReadOnlyScore implements ReadOnlyScoreInfo {
 +    private final int value;
 +    private final boolean locked;
++
++    @Nullable
 +    private final NumberFormat numberFormat;
 +
-+    public ReadOnlyScore(final @NonNull Score score) {
++    public ReadOnlyScore(final Score score) {
 +        this.value = score.value();
 +        this.locked = score.isLocked();
 +        this.numberFormat = score.numberFormat();
@@ -4141,17 +4214,18 @@ index 0000000000000000000000000000000000000000..b60bdf07bd6c020167e82238c3e36c8b
 +        return locked;
 +    }
 +
++    @Nullable
 +    @Override
-+    public @Nullable NumberFormat numberFormat() {
++    public NumberFormat numberFormat() {
 +        return numberFormat;
 +    }
 +}
 diff --git a/io/canvasmc/canvas/threadedregions/scores/TeamData.java b/io/canvasmc/canvas/threadedregions/scores/TeamData.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..dd091aab74fc65ea80fcb7c585412e1bb920d8d2
+index 0000000000000000000000000000000000000000..5de2dd48e5dc76a559c525135320b2696bb5b72b
 --- /dev/null
 +++ b/io/canvasmc/canvas/threadedregions/scores/TeamData.java
-@@ -0,0 +1,164 @@
+@@ -0,0 +1,163 @@
 +package io.canvasmc.canvas.threadedregions.scores;
 +
 +import java.util.List;
@@ -4162,7 +4236,6 @@ index 0000000000000000000000000000000000000000..dd091aab74fc65ea80fcb7c585412e1b
 +import net.minecraft.world.scores.Team;
 +import net.minecraft.world.scores.TeamColor;
 +import org.jetbrains.annotations.Contract;
-+import org.jspecify.annotations.NonNull;
 +
 +@SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 +public class TeamData {
@@ -4175,22 +4248,6 @@ index 0000000000000000000000000000000000000000..dd091aab74fc65ea80fcb7c585412e1b
 +    private Team.Visibility deathMessageVisibility = Team.Visibility.ALWAYS;
 +    private Optional<TeamColor> color = Optional.empty();
 +    private Team.CollisionRule collisionRule = Team.CollisionRule.ALWAYS;
-+
-+    @NonNull
-+    @Contract("_ -> new")
-+    public static TeamData copyOf(final @NonNull TeamData toCopy) {
-+        return new TeamData(
-+            toCopy.isAllowFriendlyFire(),
-+            toCopy.isSeeFriendlyInvisibles(),
-+            toCopy.getDisplayName(),
-+            toCopy.getPlayerPrefix(),
-+            toCopy.getPlayerSuffix(),
-+            toCopy.getNameTagVisibility(),
-+            toCopy.getDeathMessageVisibility(),
-+            toCopy.getColor(),
-+            toCopy.getCollisionRule()
-+        );
-+    }
 +
 +    public TeamData(
 +        final boolean allowFriendlyFire,
@@ -4214,8 +4271,24 @@ index 0000000000000000000000000000000000000000..dd091aab74fc65ea80fcb7c585412e1b
 +        this.collisionRule = collisionRule;
 +    }
 +
-+    public TeamData() {
-+        // no-op
++    // display name is required for instantiation of team data
++    public TeamData(final Component displayName) {
++        this.displayName = displayName;
++    }
++
++    @Contract("_ -> new")
++    public static TeamData copyOf(final TeamData toCopy) {
++        return new TeamData(
++            toCopy.isAllowFriendlyFire(),
++            toCopy.isSeeFriendlyInvisibles(),
++            toCopy.getDisplayName(),
++            toCopy.getPlayerPrefix(),
++            toCopy.getPlayerSuffix(),
++            toCopy.getNameTagVisibility(),
++            toCopy.getDeathMessageVisibility(),
++            toCopy.getColor(),
++            toCopy.getCollisionRule()
++        );
 +    }
 +
 +    public boolean isAllowFriendlyFire() {
@@ -4316,12 +4389,25 @@ index 0000000000000000000000000000000000000000..dd091aab74fc65ea80fcb7c585412e1b
 +        );
 +    }
 +}
+diff --git a/io/canvasmc/canvas/threadedregions/scores/package-info.java b/io/canvasmc/canvas/threadedregions/scores/package-info.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..fb6f4eb879c9409ce66900dd61b790e3991750bc
+--- /dev/null
++++ b/io/canvasmc/canvas/threadedregions/scores/package-info.java
+@@ -0,0 +1,7 @@
++/**
++ * This package is for classes related to the Canvas scoreboard system rewrite
++ */
++@NullMarked
++package io.canvasmc.canvas.threadedregions.scores;
++
++import org.jspecify.annotations.NullMarked;
 diff --git a/io/canvasmc/canvas/threadedregions/waypoints/RegionizedWaypointManager.java b/io/canvasmc/canvas/threadedregions/waypoints/RegionizedWaypointManager.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..b78564362c21757692631ff898b7a72188ecbf07
+index 0000000000000000000000000000000000000000..56e5d79f30b1eab6798dc337003b14408eb47e33
 --- /dev/null
 +++ b/io/canvasmc/canvas/threadedregions/waypoints/RegionizedWaypointManager.java
-@@ -0,0 +1,268 @@
+@@ -0,0 +1,278 @@
 +package io.canvasmc.canvas.threadedregions.waypoints;
 +
 +import ca.spottedleaf.concurrentutil.collection.MultiThreadedQueue;
@@ -4335,7 +4421,7 @@ index 0000000000000000000000000000000000000000..b78564362c21757692631ff898b7a721
 +import net.minecraft.server.level.ServerPlayer;
 +import net.minecraft.server.waypoints.ServerWaypointManager;
 +import net.minecraft.world.waypoints.WaypointTransmitter;
-+import org.jspecify.annotations.NonNull;
++import org.jspecify.annotations.NullMarked;
 +import org.jspecify.annotations.Nullable;
 +
 +/**
@@ -4345,7 +4431,12 @@ index 0000000000000000000000000000000000000000..b78564362c21757692631ff898b7a721
 + * very far. As a result, the {@link net.minecraft.world.waypoints.WaypointTransmitter.EntityAzimuthConnection} will be
 + * the most used. This is optimized enough for region-threading, but this may be revisited in the future for even faster
 + * handling of this.
++ *
++ * @author dueris
 + */
++// TODO - PR to Paper
++@SuppressWarnings("CodeBlock2Expr")
++@NullMarked
 +public class RegionizedWaypointManager extends ServerWaypointManager {
 +
 +    /**
@@ -4371,25 +4462,15 @@ index 0000000000000000000000000000000000000000..b78564362c21757692631ff898b7a721
 +    private final MultiThreadedQueue<ServerPlayer> players = new MultiThreadedQueue<>();
 +    private final ServerLevel level;
 +
-+    private boolean shouldScheduleBasedOnDistance(final @NonNull ServerPlayer origin, final ServerPlayer target) {
-+        final double scaled = origin.distanceTo(target) / scale;
-+        return origin.getRandom().nextDouble() < (1.0 / (1.0 + (scaled * scaled)));
-+    }
-+
-+    // note: this should be scheduled on the 'player'
-+    private static void breakConnection(final @NonNull ServerPlayer player) {
-+        TickThread.ensureTickThread(player, "Cannot update break connection off owning thread of player");
-+        final Object2ObjectMap<WaypointTransmitter, WaypointTransmitter.Connection> map = player.canvas$activeWaypoints;
-+        for (final WaypointTransmitter.Connection conn : map.values()) {
-+            conn.disconnect();
-+        }
-+        map.clear();
-+    }
-+
 +    public RegionizedWaypointManager(final ServerLevel level) {
 +        super(level);
 +        this.level = level;
 +        this.scale = level.canvasConfig().waypointUpdateScale;
++    }
++
++    private boolean shouldScheduleBasedOnDistance(final ServerPlayer origin, final ServerPlayer target) {
++        final double scaled = origin.distanceTo(target) / scale;
++        return origin.getRandom().nextDouble() < (1.0 / (1.0 + (scaled * scaled)));
 +    }
 +
 +    public boolean isLocatorBarDisabled() {
@@ -4397,56 +4478,41 @@ index 0000000000000000000000000000000000000000..b78564362c21757692631ff898b7a721
 +    }
 +
 +    @Override
-+    public void trackWaypoint(final @NonNull WaypointTransmitter waypoint) {
++    public void trackWaypoint(final WaypointTransmitter waypoint) {
 +        if (!waypoints.contains(waypoint)) waypoints.add(waypoint);
 +        if (isLocatorBarDisabled()) return;
 +
-+        for (final ServerPlayer player : players) {
-+            player.getBukkitEntity().taskScheduler.scheduleOrExecute((ServerPlayer entityPlayer) -> {
++        for (final ServerPlayer trackedPlayer : players) {
++            trackedPlayer.getBukkitEntity().taskScheduler.scheduleOrExecute((ServerPlayer entityPlayer) -> {
 +                createConnection(entityPlayer, waypoint);
 +            });
 +        }
 +    }
 +
 +    @Override
-+    public void updateWaypoint(final @NonNull WaypointTransmitter waypoint) {
++    public void updateWaypoint(final WaypointTransmitter waypoint) {
 +        if (isLocatorBarDisabled()) return;
 +        if (!waypoints.contains(waypoint)) return;
 +
 +        final ServerPlayer updating = (ServerPlayer) waypoint;
 +
-+        for (final ServerPlayer player : players) {
-+            if (player == updating) continue;
++        for (final ServerPlayer trackedPlayer : players) {
++            if (trackedPlayer == updating) continue;
 +
-+            if (updating.distanceTo(player) > 332.0F && !shouldScheduleBasedOnDistance(updating, player)) {
++            if (updating.distanceTo(trackedPlayer) > 332.0F && !shouldScheduleBasedOnDistance(updating, trackedPlayer)) {
 +                continue;
 +            }
 +
-+            player.getBukkitEntity().taskScheduler.scheduleOrExecute((ServerPlayer entityPlayer) -> {
++            trackedPlayer.getBukkitEntity().taskScheduler.scheduleOrExecute((ServerPlayer entityPlayer) -> {
 +                updateWaypoint(waypoint, entityPlayer);
 +            });
 +        }
 +    }
 +
-+    // note: this should be scheduled on 'player'
-+    private void updateWaypoint(final WaypointTransmitter waypoint, final @NonNull ServerPlayer player) {
-+        TickThread.ensureTickThread(player, "Cannot update waypoint off owning thread of player");
-+        final Object2ObjectMap<WaypointTransmitter, WaypointTransmitter.Connection> map = player.canvas$activeWaypoints;
-+        final WaypointTransmitter.Connection conn = map.get(waypoint);
-+
-+        if (conn != null) {
-+            final Runnable callback = updateConnection(player, waypoint, conn);
-+            if (callback != null) callback.run();
-+        }
-+        else {
-+            createConnection(player, waypoint);
-+        }
-+    }
-+
 +    @Override
-+    public void untrackWaypoint(final @NonNull WaypointTransmitter waypoint) {
-+        for (final ServerPlayer player : players) {
-+            player.getBukkitEntity().taskScheduler.scheduleOrExecute((ServerPlayer entityPlayer) -> {
++    public void untrackWaypoint(final WaypointTransmitter waypoint) {
++        for (final ServerPlayer trackedPlayer : players) {
++            trackedPlayer.getBukkitEntity().taskScheduler.scheduleOrExecute((ServerPlayer entityPlayer) -> {
 +                disconnectWaypoint(waypoint, entityPlayer);
 +            });
 +        }
@@ -4454,17 +4520,9 @@ index 0000000000000000000000000000000000000000..b78564362c21757692631ff898b7a721
 +        waypoints.remove(waypoint);
 +    }
 +
-+    // note: this should be scheduled on the 'player'
-+    private void disconnectWaypoint(final WaypointTransmitter waypoint, final @NonNull ServerPlayer player) {
-+        TickThread.ensureTickThread(player, "Cannot disconnect waypoint off owning thread of player");
-+        final Object2ObjectMap<WaypointTransmitter, WaypointTransmitter.Connection> map = player.canvas$activeWaypoints;
-+        final WaypointTransmitter.Connection conn = map.remove(waypoint);
-+        if (conn != null) conn.disconnect();
-+    }
-+
++    // note: this should be called on the "player" param
 +    @Override
-+    // note: this should be called on the 'player'
-+    public void addPlayer(final @NonNull ServerPlayer player) {
++    public void addPlayer(final ServerPlayer player) {
 +        if (!players.contains(player)) players.add(player);
 +
 +        if (isLocatorBarDisabled()) return;
@@ -4477,13 +4535,14 @@ index 0000000000000000000000000000000000000000..b78564362c21757692631ff898b7a721
 +        }
 +    }
 +
++    // note: this should be called on the "player" param
 +    @Override
-+    // note: this should be called on the 'player'
-+    public void updatePlayer(final @NonNull ServerPlayer player) {
++    public void updatePlayer(final ServerPlayer player) {
 +        if (isLocatorBarDisabled()) return;
 +        player.getBukkitEntity().taskScheduler.scheduleOrExecute((ServerPlayer entityPlayer) -> {
 +            final Object2ObjectMap<WaypointTransmitter, WaypointTransmitter.Connection> map = player.canvas$activeWaypoints;
-+            final Runnable[] callbacks = new Runnable[map.size()];
++            // only contains null entries if has fewer callbacks than active waypoints
++            final @Nullable Runnable[] callbacks = new Runnable[map.size()];
 +
 +            int idx = 0;
 +            for (final Map.Entry<WaypointTransmitter, WaypointTransmitter.Connection> entry : map.object2ObjectEntrySet()) {
@@ -4507,9 +4566,9 @@ index 0000000000000000000000000000000000000000..b78564362c21757692631ff898b7a721
 +        });
 +    }
 +
++    // note: this should be called on the "player" param
 +    @Override
-+    // note: this should be called on the 'player'
-+    public void removePlayer(final @NonNull ServerPlayer player) {
++    public void removePlayer(final ServerPlayer player) {
 +        breakConnection(player);
 +
 +        untrackWaypoint(player);
@@ -4518,33 +4577,57 @@ index 0000000000000000000000000000000000000000..b78564362c21757692631ff898b7a721
 +
 +    @Override
 +    public void breakAllConnections() {
-+        for (final ServerPlayer player : players) {
-+            player.getBukkitEntity().taskScheduler.scheduleOrExecute((ServerPlayer entityPlayer) -> {
++        for (final ServerPlayer trackedPlayer : players) {
++            trackedPlayer.getBukkitEntity().taskScheduler.scheduleOrExecute((ServerPlayer entityPlayer) -> {
 +                breakConnection(entityPlayer);
 +            });
 +        }
 +    }
 +
 +    @Override
-+    public void remakeConnections(final @NonNull WaypointTransmitter waypoint) {
++    public void remakeConnections(final WaypointTransmitter waypoint) {
 +        if (isLocatorBarDisabled()) return;
-+        for (final ServerPlayer player : players) {
-+            player.getBukkitEntity().taskScheduler.scheduleOrExecute((ServerPlayer entityPlayer) -> {
++        for (final ServerPlayer trackedPlayer : players) {
++            trackedPlayer.getBukkitEntity().taskScheduler.scheduleOrExecute((ServerPlayer entityPlayer) -> {
 +                createConnection(entityPlayer, waypoint);
 +            });
 +        }
 +    }
 +
-+    @NonNull
 +    @Override
 +    public Set<WaypointTransmitter> transmitters() {
 +        return new HashSet<>(waypoints);
 +    }
 +
-+    // note: this should be scheduled on 'player'
++    // note: this should be scheduled on the "player" param
++    private void updateWaypoint(final WaypointTransmitter waypoint, final ServerPlayer player) {
++        TickThread.ensureTickThread(player, "Cannot update waypoint async");
++        final Object2ObjectMap<WaypointTransmitter, WaypointTransmitter.Connection> map = player.canvas$activeWaypoints;
++        final WaypointTransmitter.Connection conn = map.get(waypoint);
++
++        if (conn != null) {
++            final Runnable callback = updateConnection(player, waypoint, conn);
++            if (callback != null) {
++                callback.run();
++            }
++        }
++        else createConnection(player, waypoint);
++    }
++
++    // note: this should be scheduled on the "player" param
++    private void disconnectWaypoint(final WaypointTransmitter waypoint, final ServerPlayer player) {
++        TickThread.ensureTickThread(player, "Cannot disconnect waypoint async");
++        final Object2ObjectMap<WaypointTransmitter, WaypointTransmitter.Connection> map = player.canvas$activeWaypoints;
++        final WaypointTransmitter.Connection conn = map.remove(waypoint);
++        if (conn != null) {
++            conn.disconnect();
++        }
++    }
++
++    // note: this should be scheduled on "player" param
 +    private void createConnection(final ServerPlayer player, final WaypointTransmitter waypoint) {
 +        if (player == waypoint) return;
-+        TickThread.ensureTickThread(player, "Cannot create waypoint connection off owning thread of player");
++        TickThread.ensureTickThread(player, "Cannot create waypoint connection async");
 +
 +        final Object2ObjectMap<WaypointTransmitter, WaypointTransmitter.Connection> map = player.canvas$activeWaypoints;
 +
@@ -4552,18 +4635,20 @@ index 0000000000000000000000000000000000000000..b78564362c21757692631ff898b7a721
 +            map.put(waypoint, connection);
 +            connection.connect();
 +        }, () -> {
-+            WaypointTransmitter.Connection existing = map.remove(waypoint);
-+            if (existing != null) existing.disconnect();
++            final WaypointTransmitter.Connection existing = map.remove(waypoint);
++            if (existing != null) {
++                existing.disconnect();
++            }
 +        });
 +    }
 +
-+    // note: this should be scheduled on 'player'
++    // note: this should be scheduled on the "player" param
 +    @Nullable
 +    private Runnable updateConnection(
 +        final ServerPlayer player, final WaypointTransmitter waypoint, final WaypointTransmitter.Connection connection
 +    ) {
 +        if (player == waypoint) return null;
-+        TickThread.ensureTickThread(player, "Cannot update waypoint connection off owning thread of player");
++        TickThread.ensureTickThread(player, "Cannot update waypoint connection async");
 +
 +        final Object2ObjectMap<WaypointTransmitter, WaypointTransmitter.Connection> map = player.canvas$activeWaypoints;
 +
@@ -4572,6 +4657,7 @@ index 0000000000000000000000000000000000000000..b78564362c21757692631ff898b7a721
 +        }
 +        else {
 +            var ref = new Object() {
++                @Nullable
 +                Runnable returnRef;
 +            };
 +            waypoint.makeWaypointConnectionWith(player).ifPresentOrElse(newConn -> ref.returnRef = () -> {
@@ -4588,6 +4674,16 @@ index 0000000000000000000000000000000000000000..b78564362c21757692631ff898b7a721
 +
 +    public ServerLevel getLevel() {
 +        return level;
++    }
++
++    // note: this should be scheduled on the "player" param
++    private static void breakConnection(final ServerPlayer player) {
++        TickThread.ensureTickThread(player, "Cannot update break connection async");
++        final Object2ObjectMap<WaypointTransmitter, WaypointTransmitter.Connection> map = player.canvas$activeWaypoints;
++        for (final WaypointTransmitter.Connection conn : map.values()) {
++            conn.disconnect();
++        }
++        map.clear();
 +    }
 +}
 diff --git a/io/papermc/paper/entity/activation/ActivationRange.java b/io/papermc/paper/entity/activation/ActivationRange.java
@@ -10812,10 +10908,10 @@ index 8424cf9d4617b4732d44cc460d25b04481068989..abcc8ae0a5ab4d089c6e888519b1b094
  }
 diff --git a/io/papermc/paper/threadedregions/commands/CommandServerHealth.java b/io/papermc/paper/threadedregions/commands/CommandServerHealth.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..354659426e08dcb41fa0f6b2e616ff45a4e16567
+index 0000000000000000000000000000000000000000..020659f93d5593a88237ca2e6237196b163b4bd7
 --- /dev/null
 +++ b/io/papermc/paper/threadedregions/commands/CommandServerHealth.java
-@@ -0,0 +1,517 @@
+@@ -0,0 +1,519 @@
 +package io.papermc.paper.threadedregions.commands;
 +
 +import ca.spottedleaf.common.time.TickData;
@@ -11134,8 +11230,10 @@ index 0000000000000000000000000000000000000000..354659426e08dcb41fa0f6b2e616ff45
 +            worldBuilder.append(Component.text(TWO_DECIMAL_PLACES.get().format(averagedTps), CommandUtil.getColourForTPS(averagedTps)));
 +            worldBuilder.append(Component.text(" average TPS", SECONDARY));
 +            worldBuilder.append(Component.text(", ", PRIMARY));
-+            worldBuilder.append(Component.text(ONE_DECIMAL_PLACES.get().format(worldUtil * 100.0) + "/" + ONE_DECIMAL_PLACES.get().format(maxThreadCount * 100.0) + "%", CommandUtil.getUtilisationColourRegion(worldUtil)));
-+            worldBuilder.append(Component.text(" util\n", SECONDARY));
++            worldBuilder.append(Component.text(ONE_DECIMAL_PLACES.get().format(worldUtil * 100.0), CommandUtil.getUtilisationColourRegion(worldUtil / (double)maxThreadCount)));
++            worldBuilder.append(Component.text("/", PRIMARY));
++            worldBuilder.append(Component.text(ONE_DECIMAL_PLACES.get().format(maxThreadCount * 100.0), INFORMATION));
++            worldBuilder.append(Component.text("% util\n", PRIMARY));
 +
 +            final String dimensionPath = world.dimension().identifier().getPath();
 +            final String worldName = world.getWorld().getName();
@@ -12115,7 +12213,7 @@ index 89b9d1a4122d502437d516f8affc5ba72f421f5f..587ec673a0821e91de67abaf3a559c78
      }
  
 diff --git a/net/minecraft/commands/Commands.java b/net/minecraft/commands/Commands.java
-index 9a49c1577def2517db99dcc5d34c7a99f8981075..466c88f9465c427056eafecbb5efecf011ba81ac 100644
+index 8388e19836fb79735f50ec2093316a4b25512073..9f569c9dc7ed0b31a58af361ba1146df3d437871 100644
 --- a/net/minecraft/commands/Commands.java
 +++ b/net/minecraft/commands/Commands.java
 @@ -201,7 +201,7 @@ public class Commands {
@@ -12180,7 +12278,7 @@ index 9a49c1577def2517db99dcc5d34c7a99f8981075..466c88f9465c427056eafecbb5efecf0
              SaveAllCommand.register(this.dispatcher);
              SaveOffCommand.register(this.dispatcher);
              SaveOnCommand.register(this.dispatcher);
-@@ -509,9 +509,11 @@ public class Commands {
+@@ -510,9 +510,11 @@ public class Commands {
          }
          // Paper start - Perf: Async command map building
          new com.destroystokyo.paper.event.brigadier.AsyncPlayerSendCommandsEvent<CommandSourceStack>(player.getBukkitEntity(), (RootCommandNode) root, false).callEvent(); // Paper - Brigadier API
@@ -12195,6 +12293,41 @@ index 9a49c1577def2517db99dcc5d34c7a99f8981075..466c88f9465c427056eafecbb5efecf0
      }
  
      private void runSync(ServerPlayer player, java.util.Collection<String> bukkit, RootCommandNode<CommandSourceStack> root) {
+diff --git a/net/minecraft/commands/arguments/selector/EntitySelector.java b/net/minecraft/commands/arguments/selector/EntitySelector.java
+index 6c05b9276bdc267a36376f6c64592a50e4b2b36e..cfc1b480704bf47917f68abe4da2e59cc5019513 100644
+--- a/net/minecraft/commands/arguments/selector/EntitySelector.java
++++ b/net/minecraft/commands/arguments/selector/EntitySelector.java
+@@ -184,11 +184,25 @@ public class EntitySelector {
+     private void addEntities(final List<Entity> result, final ServerLevel level, final @Nullable AABB absoluteAABB, final Predicate<Entity> predicate) {
+         int limit = this.getResultLimit();
+         if (result.size() < limit) {
+-            if (absoluteAABB != null) {
+-                level.getEntities(this.type, absoluteAABB, predicate, result, limit);
+-            } else {
+-                level.getEntities(this.type, predicate, result, limit);
+-            }
++            // Canvas start - region threading
++
++            // people can use the params in the entity selector to create a bounding
++            // box large enough that it exceeds the region boundaries, so we modify
++            // the collecting of entities here to avoid the thread check, and we just
++            // check the entity is actually contained in the AABB
++
++            level.getEntities(this.type, (entity) -> {
++                // check AABB first, then check predicate
++                if (absoluteAABB != null && !entity.getBoundingBox().intersects(absoluteAABB)) {
++                    return false;
++                }
++
++                // if the AABB isn't null and intersects, the entity is contained within the box
++                // and should be ok for collection if the predicate passes
++
++                return predicate.test(entity);
++            }, result, limit);
++            // Canvas end - region threading
+         }
+     }
+ 
 diff --git a/net/minecraft/core/dispenser/DispenseItemBehavior.java b/net/minecraft/core/dispenser/DispenseItemBehavior.java
 index 162d7890f204315b0476467e757de5c9dd84aeca..930948aeeac68a6f844b8490f9ca9ad171135bf3 100644
 --- a/net/minecraft/core/dispenser/DispenseItemBehavior.java
@@ -21567,7 +21700,7 @@ index ebb0923b38a7529e7df531b3947a0421df29d654..0b1f5a85c17c4c5266701aaa7959e95f
  
      public boolean isOldChunkAround(final ChunkPos pos, final int range) {
 diff --git a/net/minecraft/server/network/ServerCommonPacketListenerImpl.java b/net/minecraft/server/network/ServerCommonPacketListenerImpl.java
-index b124679701ca7c894951ac78562e9161cd2aef5d..a13d8da418722b76b258016335d1095074756bee 100644
+index b328b14919e837546b5e7081ed6e239e4486ee53..58ec4c37c1fb6735f4954a8d9f8788956baf78f3 100644
 --- a/net/minecraft/server/network/ServerCommonPacketListenerImpl.java
 +++ b/net/minecraft/server/network/ServerCommonPacketListenerImpl.java
 @@ -291,10 +291,17 @@ public abstract class ServerCommonPacketListenerImpl implements ServerCommonPack
@@ -21752,7 +21885,7 @@ index e84e243f35b09691d03e9a9cf3de0c093b1d5cfb..46983eb8ac670464c9ade84be21529a6
              }
              // Spigot end
 diff --git a/net/minecraft/server/network/ServerGamePacketListenerImpl.java b/net/minecraft/server/network/ServerGamePacketListenerImpl.java
-index 4ea2718f48dbddd1a2343aad88873ad540eb4117..2dcfc4557ee75c802df8a1160bf888561ea7e0ff 100644
+index 4fd6f76bb59824b41241d6b3603ce5d3a6edad9c..385252df4562cb58ef12e35016de6577b3a6babc 100644
 --- a/net/minecraft/server/network/ServerGamePacketListenerImpl.java
 +++ b/net/minecraft/server/network/ServerGamePacketListenerImpl.java
 @@ -301,10 +301,10 @@ public class ServerGamePacketListenerImpl
@@ -23682,7 +23815,7 @@ index bb5f66c62c9541bb76a9faad9e9ee91c1466fc6a..66d7bb9418832638c220a08d06c01ef0
              return blockToFallLocation(blockState);
          } else {
 diff --git a/net/minecraft/world/entity/Entity.java b/net/minecraft/world/entity/Entity.java
-index 14978c122253dddf6ebd39694a38a8599ce9fcba..1c21b1f7c331426c07264f68580e9406c457dd82 100644
+index 14978c122253dddf6ebd39694a38a8599ce9fcba..97ba8df73d04f08b62fe899a0a899d92dd72aecf 100644
 --- a/net/minecraft/world/entity/Entity.java
 +++ b/net/minecraft/world/entity/Entity.java
 @@ -170,7 +170,7 @@ public abstract class Entity
@@ -23721,8 +23854,8 @@ index 14978c122253dddf6ebd39694a38a8599ce9fcba..1c21b1f7c331426c07264f68580e9406
          return this.dimensions.makeBoundingBox(x, y, z);
      }
      // Paper end
-+    public io.canvasmc.canvas.util.@Nullable ServerLocation canvas$lastTeleportOrigin = null; // Canvas - region threading
-+    public @Nullable ServerLevel canvas$teleportingToDimension = null; // Canvas - region threading
++    public volatile io.canvasmc.canvas.util.@Nullable ServerLocation canvas$lastTeleportOrigin = null; // Canvas - region threading
++    public volatile @Nullable ServerLevel canvas$teleportingToDimension = null; // Canvas - region threading
      // Paper start - rewrite chunk system
      private final boolean isHardColliding = this.moonrise$isHardCollidingUncached();
      private net.minecraft.server.level.FullChunkStatus chunkStatus;
@@ -23940,7 +24073,7 @@ index 14978c122253dddf6ebd39694a38a8599ce9fcba..1c21b1f7c331426c07264f68580e9406
      }
  
      public int getDimensionChangingDelay() {
-@@ -4042,7 +4101,1009 @@ public abstract class Entity
+@@ -4042,7 +4101,1032 @@ public abstract class Entity
          this.portalProcess = oldEntity.portalProcess;
      }
  
@@ -24509,14 +24642,37 @@ index 14978c122253dddf6ebd39694a38a8599ce9fcba..1c21b1f7c331426c07264f68580e9406
 +        final Vec3 finalPos = pos;
 +        final Float finalYaw = yaw;
 +        final Float finalPitch = pitch;
++
 +        passengerTree.root.placeInAsync(originWorld, destination, teleportFlags, passengerTree, (entity) -> {
++            // reset the teleporting fields, we finished the teleport
 +            this.canvas$teleportingToDimension = null;
 +            this.canvas$lastTeleportOrigin = null;
-+            if (entity instanceof ServerPlayer serverPlayer && displayedScreen.isTrue()) serverPlayer.refresh(false);
-+            if (teleportComplete != null) teleportComplete.accept(entity);
++
++            // we need to check if the entity displayed the loading screen
++            if (entity instanceof ServerPlayer serverPlayer && displayedScreen.isTrue()) {
++                serverPlayer.refresh(false);
++            }
++
++            // now we need to run teleport completion for the teleport call
++            if (teleportComplete != null) {
++                teleportComplete.accept(entity);
++            }
++
++            // we run post event afterward because the event can call another
++            // teleport, which could cause the teleport complete to fail
 +            if (callEvents && io.canvasmc.canvas.event.EntityPostTeleportAsyncEvent.getHandlerList().getRegisteredListeners().length > 0) {
-+                org.bukkit.Location bukkitFrom = new org.bukkit.Location(originWorld.getWorld(), currPos.x, currPos.y, currPos.z, this.getYRot(), this.getXRot());
-+                org.bukkit.Location bukkitTo = new org.bukkit.Location(finalLevelDest.getWorld(), finalPos.x, finalPos.y, finalPos.z, finalYaw == null ? 0 : finalYaw, finalPitch == null ? 0 : finalPitch);
++                final org.bukkit.Location bukkitFrom = new org.bukkit.Location(
++                    originWorld.getWorld(),
++                    currPos.x, currPos.y, currPos.z,
++                    this.getYRot(),
++                    this.getXRot()
++                );
++                final org.bukkit.Location bukkitTo = new org.bukkit.Location(
++                    finalLevelDest.getWorld(),
++                    finalPos.x, finalPos.y, finalPos.z,
++                    finalYaw == null ? 0 : finalYaw,
++                    finalPitch == null ? 0 : finalPitch
++                );
 +                new io.canvasmc.canvas.event.EntityPostTeleportAsyncEvent(
 +                    this.getBukkitEntity(), bukkitFrom, bukkitTo, cause, teleportType
 +                ).callEvent();
@@ -24950,7 +25106,7 @@ index 14978c122253dddf6ebd39694a38a8599ce9fcba..1c21b1f7c331426c07264f68580e9406
          // Paper start - Fix item duplication and teleport issues
          if ((!this.isAlive() || !this.valid) && (transition.newLevel() != this.level)) {
              LOGGER.warn("Illegal Entity Teleport {} to {}:{}", this, transition.newLevel(), transition.position(), new Throwable());
-@@ -4237,6 +5298,12 @@ public abstract class Entity
+@@ -4237,6 +5321,12 @@ public abstract class Entity
          }
      }
  
@@ -24963,7 +25119,7 @@ index 14978c122253dddf6ebd39694a38a8599ce9fcba..1c21b1f7c331426c07264f68580e9406
      protected void removeAfterChangingDimensions() {
          this.setRemoved(Entity.RemovalReason.CHANGED_DIMENSION, null); // CraftBukkit - add Bukkit remove cause
          if (this instanceof Leashable leashable && leashable.isLeashed()) { // Paper - only call if it is leashed
-@@ -4570,6 +5637,12 @@ public abstract class Entity
+@@ -4570,6 +5660,12 @@ public abstract class Entity
      }
  
      public void startSeenByPlayer(final ServerPlayer player) {
@@ -24976,7 +25132,7 @@ index 14978c122253dddf6ebd39694a38a8599ce9fcba..1c21b1f7c331426c07264f68580e9406
      }
  
      public void stopSeenByPlayer(final ServerPlayer player) {
-@@ -4579,6 +5652,12 @@ public abstract class Entity
+@@ -4579,6 +5675,12 @@ public abstract class Entity
              new io.papermc.paper.event.player.PlayerUntrackEntityEvent(player.getBukkitEntity(), this.getBukkitEntity()).callEvent();
          }
          // Paper end - entity tracking events
@@ -24989,7 +25145,7 @@ index 14978c122253dddf6ebd39694a38a8599ce9fcba..1c21b1f7c331426c07264f68580e9406
      }
  
      public float rotate(final Rotation rotation) {
-@@ -4986,7 +6065,10 @@ public abstract class Entity
+@@ -4986,7 +6088,10 @@ public abstract class Entity
              return;
          }
          // Paper end - Block invalid positions and bounding box
@@ -25001,7 +25157,7 @@ index 14978c122253dddf6ebd39694a38a8599ce9fcba..1c21b1f7c331426c07264f68580e9406
              this.position = new Vec3(x, y, z);
              int fx = Mth.floor(x);
              int fy = Mth.floor(y);
-@@ -5017,7 +6099,7 @@ public abstract class Entity
+@@ -5017,7 +6122,7 @@ public abstract class Entity
          }
          // Paper start - Block invalid positions and bounding box; don't allow desync of pos and AABB
          // hanging has its own special logic
@@ -25010,7 +25166,7 @@ index 14978c122253dddf6ebd39694a38a8599ce9fcba..1c21b1f7c331426c07264f68580e9406
              this.setBoundingBox(this.makeBoundingBox());
          }
          // Paper end - Block invalid positions and bounding box
-@@ -5092,6 +6174,7 @@ public abstract class Entity
+@@ -5092,6 +6197,7 @@ public abstract class Entity
              Util.logAndPauseIfInIde("Invalid entity rotation: " + yRot + ", discarding.");
          } else {
              this.yRot = yRot;
@@ -25018,7 +25174,7 @@ index 14978c122253dddf6ebd39694a38a8599ce9fcba..1c21b1f7c331426c07264f68580e9406
          }
      }
  
-@@ -5104,6 +6187,7 @@ public abstract class Entity
+@@ -5104,6 +6210,7 @@ public abstract class Entity
              Util.logAndPauseIfInIde("Invalid entity rotation: " + xRot + ", discarding.");
          } else {
              this.xRot = Math.clamp(xRot % 360.0F, -90.0F, 90.0F);
@@ -25026,7 +25182,7 @@ index 14978c122253dddf6ebd39694a38a8599ce9fcba..1c21b1f7c331426c07264f68580e9406
          }
      }
  
-@@ -5123,6 +6207,12 @@ public abstract class Entity
+@@ -5123,6 +6230,12 @@ public abstract class Entity
          return this.removalReason != null;
      }
  
@@ -25039,7 +25195,7 @@ index 14978c122253dddf6ebd39694a38a8599ce9fcba..1c21b1f7c331426c07264f68580e9406
      public Entity.@Nullable RemovalReason getRemovalReason() {
          return this.removalReason;
      }
-@@ -5137,6 +6227,7 @@ public abstract class Entity
+@@ -5137,6 +6250,7 @@ public abstract class Entity
          // Paper end - rewrite chunk system
          org.bukkit.craftbukkit.event.CraftEventFactory.callEntityRemoveEvent(this, cause); // CraftBukkit
          final boolean alreadyRemoved = this.removalReason != null; // Paper - Folia schedulers
@@ -25047,7 +25203,7 @@ index 14978c122253dddf6ebd39694a38a8599ce9fcba..1c21b1f7c331426c07264f68580e9406
          if (this.removalReason == null) {
              this.removalReason = reason;
          }
-@@ -5160,6 +6251,10 @@ public abstract class Entity
+@@ -5160,6 +6274,10 @@ public abstract class Entity
          this.removalReason = null;
      }
  
@@ -25058,7 +25214,7 @@ index 14978c122253dddf6ebd39694a38a8599ce9fcba..1c21b1f7c331426c07264f68580e9406
      // Paper start - Folia schedulers
      /**
       * Invoked only when the entity is truly removed from the server, never to be added to any world.
-@@ -5171,7 +6266,7 @@ public abstract class Entity
+@@ -5171,7 +6289,7 @@ public abstract class Entity
      // Paper end - Folia schedulers
      // Paper start - optimise Folia entity scheduler
      public final void registerScheduler() {
@@ -25455,7 +25611,7 @@ index 7ec15f3d3a770e1e9e2fbac29dd38e947bb07091..480fd2daaa63965e456ba3e2b30ff36c
          return this.portal.getLocalTransition();
      }
 diff --git a/net/minecraft/world/entity/TamableAnimal.java b/net/minecraft/world/entity/TamableAnimal.java
-index efd6eabde047c897c9eb4366e23f23c1885ab866..75bbea3a510d87be8074ab72d92ee279ee3a5085 100644
+index efd6eabde047c897c9eb4366e23f23c1885ab866..7cb779eba5a5ce31b712a0b3aeae9cdd9c96dd76 100644
 --- a/net/minecraft/world/entity/TamableAnimal.java
 +++ b/net/minecraft/world/entity/TamableAnimal.java
 @@ -253,6 +253,11 @@ public abstract class TamableAnimal extends Animal implements OwnableEntity {
@@ -25470,24 +25626,7 @@ index efd6eabde047c897c9eb4366e23f23c1885ab866..75bbea3a510d87be8074ab72d92ee279
              this.teleportToAroundBlockPos(owner.blockPosition());
          }
      }
-@@ -276,6 +281,16 @@ public abstract class TamableAnimal extends Animal implements OwnableEntity {
-     }
- 
-     private boolean maybeTeleportTo(final int x, final int y, final int z) {
-+        // Canvas start - region threading
-+        // the tamable entity can, when trying to see if it can teleport to the
-+        // block position, try and load chunks that may or may not be outside the
-+        // region boundaries. if it tries to load chunks outside the region,
-+        // the server crashes. so we do a quick check here first to ensure
-+        // that the chunk *is* loaded first, and if it is, then we attempt teleport
-+        if (this.level().getChunkIfLoaded(x >> 4, z >> 4) == null) {
-+            return false; // chunk not loaded, don't teleport
-+        }
-+        // Canvas end - region threading
-         if (!this.canTeleportTo(new BlockPos(x, y, z))) {
-             return false;
-         }
-@@ -286,7 +301,22 @@ public abstract class TamableAnimal extends Animal implements OwnableEntity {
+@@ -286,7 +291,22 @@ public abstract class TamableAnimal extends Animal implements OwnableEntity {
              return false;
          }
          org.bukkit.Location to = event.getTo();
@@ -25511,6 +25650,38 @@ index efd6eabde047c897c9eb4366e23f23c1885ab866..75bbea3a510d87be8074ab72d92ee279
          // CraftBukkit end
          this.navigation.stop();
          return true;
+@@ -298,13 +318,29 @@ public abstract class TamableAnimal extends Animal implements OwnableEntity {
+             return false;
+         }
+ 
+-        BlockState blockStateBelow = this.level().getBlockState(pos.below());
+-        if (!this.canFlyToOwner() && blockStateBelow.getBlock() instanceof LeavesBlock) {
++        // Canvas start - region threading
++
++        // we don't want to try and load chunks as this could be outside the current region
++        BlockState blockStateBelow = this.level().getBlockStateIfLoaded(pos.below());
++        if (!this.canFlyToOwner() && (blockStateBelow == null || blockStateBelow.getBlock() instanceof LeavesBlock)) {
++        // Canvas end - region threading
+             return false;
+         }
+ 
+         BlockPos delta = pos.subtract(this.blockPosition());
++        // Canvas start - region threading
++
++        // Folia makes chunks outside the current region count as collidable which can
++        // make this check fail when it's checking at a location in a different region
++
++        // assume we can if not same region. the path type eval check actually covers this a lot, so this should be safe
++        if (!ca.spottedleaf.moonrise.common.util.TickThread.isTickThreadFor(this.level(), this.getBoundingBox().move(delta))) {
++           return true;
++        }
++
++        // same region, run Vanilla check
+         return this.level().noCollision(this, this.getBoundingBox().move(delta));
++        // Canvas end - region threading
+     }
+ 
+     public final boolean unableToMoveToOwner() {
 diff --git a/net/minecraft/world/entity/ai/Brain.java b/net/minecraft/world/entity/ai/Brain.java
 index 2b22bbfac4e324969e7cff368c690ee915d33a66..e097bc1268b4050e3948413c52dea69950858458 100644
 --- a/net/minecraft/world/entity/ai/Brain.java
@@ -27246,7 +27417,7 @@ index cc938f43c4a5e947ed87ca2001cbaca4084bf64c..211df63157825d3fe412add22f272fd8
                  return player;
              }
 diff --git a/net/minecraft/world/level/Level.java b/net/minecraft/world/level/Level.java
-index 54f96504a3429e5ade502dd36e04134a5f9429ad..4166973c6f5ac5c978dd902f1c758a43c3ff7890 100644
+index 0d2daaa341785b84031c52ea23942b4d6a6fe287..bd810c414bd774976df18618e43abca7f4303adb 100644
 --- a/net/minecraft/world/level/Level.java
 +++ b/net/minecraft/world/level/Level.java
 @@ -118,10 +118,13 @@ public abstract class Level implements LevelAccessor, AutoCloseable, ca.spottedl
@@ -27308,7 +27479,7 @@ index 54f96504a3429e5ade502dd36e04134a5f9429ad..4166973c6f5ac5c978dd902f1c758a43
      // Paper start - add paper world config
      private final io.papermc.paper.configuration.WorldConfiguration paperConfig;
 @@ -183,8 +175,8 @@ public abstract class Level implements LevelAccessor, AutoCloseable, ca.spottedl
-     // Canvas end - world config
+     // Canvas end - Rebrand - world config
  
      public static @Nullable BlockPos lastPhysicsProblem; // Spigot
 -    public final Map<ServerExplosion.CacheKey, Float> explosionDensityCache = new java.util.HashMap<>(); // Paper - Optimize explosions
@@ -30170,10 +30341,10 @@ index f359e53024019f35aaa5cd8477da708bda2fc57a..65bb86910f333ee41aec2347a1a9ce87
          return tag;
      }
 diff --git a/net/minecraft/world/scores/Objective.java b/net/minecraft/world/scores/Objective.java
-index 64ea4741b7ed58fe7914b9431353abd1f658a935..ad6862a123bd7eab4f7b620c9dac1da11567508d 100644
+index 64ea4741b7ed58fe7914b9431353abd1f658a935..672f32251db9a2453871f56a661c58aba0d6c1ed 100644
 --- a/net/minecraft/world/scores/Objective.java
 +++ b/net/minecraft/world/scores/Objective.java
-@@ -17,11 +17,17 @@ public class Objective {
+@@ -17,11 +17,16 @@ public class Objective {
      private final Scoreboard scoreboard;
      private final String name;
      private final ObjectiveCriteria criteria;
@@ -30183,8 +30354,7 @@ index 64ea4741b7ed58fe7914b9431353abd1f658a935..ad6862a123bd7eab4f7b620c9dac1da1
 -    private boolean displayAutoUpdate;
 -    private @Nullable NumberFormat numberFormat;
 +    // Canvas start - region threading
-+    private final io.canvasmc.canvas.util.LockedReference<io.canvasmc.canvas.threadedregions.scores.ObjectiveData> objectiveData =
-+        new io.canvasmc.canvas.util.LockedReference<>(new io.canvasmc.canvas.threadedregions.scores.ObjectiveData());
++    private final io.canvasmc.canvas.util.LockedReference<io.canvasmc.canvas.threadedregions.scores.ObjectiveData> objectiveData;
 +
 +    private void ensureMainThread(final String reason) {
 +        // some plugins, like fastboard, pass a null scoreboard object
@@ -30196,7 +30366,7 @@ index 64ea4741b7ed58fe7914b9431353abd1f658a935..ad6862a123bd7eab4f7b620c9dac1da1
  
      public Objective(
          final Scoreboard scoreboard,
-@@ -35,15 +41,15 @@ public class Objective {
+@@ -35,15 +40,15 @@ public class Objective {
          this.scoreboard = scoreboard;
          this.name = name;
          this.criteria = criteria;
@@ -30206,7 +30376,7 @@ index 64ea4741b7ed58fe7914b9431353abd1f658a935..ad6862a123bd7eab4f7b620c9dac1da1
 -        this.displayAutoUpdate = displayAutoUpdate;
 -        this.numberFormat = numberFormat;
 +        // Canvas start - region threading
-+        this.objectiveData.swapValue((_) -> new io.canvasmc.canvas.threadedregions.scores.ObjectiveData(
++        this.objectiveData = new io.canvasmc.canvas.util.LockedReference<>(new io.canvasmc.canvas.threadedregions.scores.ObjectiveData(
 +            createFormattedDisplayName(displayName), renderType, displayAutoUpdate, numberFormat, displayName
 +        ));
 +        // Canvas end - region threading
@@ -30218,7 +30388,7 @@ index 64ea4741b7ed58fe7914b9431353abd1f658a935..ad6862a123bd7eab4f7b620c9dac1da1
      }
  
      public Scoreboard getScoreboard() {
-@@ -59,53 +65,76 @@ public class Objective {
+@@ -59,53 +64,76 @@ public class Objective {
      }
  
      public Component getDisplayName() {
@@ -30325,10 +30495,10 @@ index 18efc6c44b94d24b9f4a3a828cfba1410131c6f3..fd48ba936144841c1c983e78386e1106
      public @Nullable Score get(final Objective objective) {
          return this.scores.get(objective);
 diff --git a/net/minecraft/world/scores/PlayerTeam.java b/net/minecraft/world/scores/PlayerTeam.java
-index 2bdbb8451974f0b8d6e94d390ac735f4ccffd954..a7a3329ecf0d08b126e3715e4f3bcca8caac2bbd 100644
+index 2bdbb8451974f0b8d6e94d390ac735f4ccffd954..6b4f07fa571fc7105af3d351aff99e3ed806974f 100644
 --- a/net/minecraft/world/scores/PlayerTeam.java
 +++ b/net/minecraft/world/scores/PlayerTeam.java
-@@ -25,39 +25,77 @@ public class PlayerTeam extends Team {
+@@ -25,39 +25,76 @@ public class PlayerTeam extends Team {
      private static final byte BIT_SEE_INVISIBLES = 2;
      private final Scoreboard scoreboard;
      private final String name;
@@ -30344,8 +30514,7 @@ index 2bdbb8451974f0b8d6e94d390ac735f4ccffd954..a7a3329ecf0d08b126e3715e4f3bcca8
 -    private Team.CollisionRule collisionRule = Team.CollisionRule.ALWAYS;
 +    // Canvas start - region threading
 +    private final Set<String> players = new java.util.concurrent.CopyOnWriteArraySet<>();
-+    private final io.canvasmc.canvas.util.LockedReference<io.canvasmc.canvas.threadedregions.scores.TeamData> teamData =
-+        new io.canvasmc.canvas.util.LockedReference<>(new io.canvasmc.canvas.threadedregions.scores.TeamData());
++    private final io.canvasmc.canvas.util.LockedReference<io.canvasmc.canvas.threadedregions.scores.TeamData> teamData;
 +    // note: displayNameStyle is final and not modified ever, so we can keep
 +    //       this outside TeamData
      private final Style displayNameStyle;
@@ -30408,7 +30577,7 @@ index 2bdbb8451974f0b8d6e94d390ac735f4ccffd954..a7a3329ecf0d08b126e3715e4f3bcca8
          this.scoreboard = scoreboard;
          this.name = name;
 -        this.displayName = Component.literal(name);
-+        setDisplayNameRaw(Component.literal(name)); // Canvas - region threading
++        this.teamData = new io.canvasmc.canvas.util.LockedReference<>(new io.canvasmc.canvas.threadedregions.scores.TeamData(Component.literal(name))); // Canvas - region threading
          this.displayNameStyle = Style.EMPTY.withInsertion(name).withHoverEvent(new HoverEvent.ShowText(Component.literal(name)));
      }
  
@@ -30430,7 +30599,7 @@ index 2bdbb8451974f0b8d6e94d390ac735f4ccffd954..a7a3329ecf0d08b126e3715e4f3bcca8
      }
  
      public Scoreboard getScoreboard() {
-@@ -70,43 +108,50 @@ public class PlayerTeam extends Team {
+@@ -70,43 +107,50 @@ public class PlayerTeam extends Team {
      }
  
      public Component getDisplayName() {
@@ -30489,7 +30658,7 @@ index 2bdbb8451974f0b8d6e94d390ac735f4ccffd954..a7a3329ecf0d08b126e3715e4f3bcca8
      }
  
      @Override
-@@ -116,7 +161,7 @@ public class PlayerTeam extends Team {
+@@ -116,7 +160,7 @@ public class PlayerTeam extends Team {
  
      @Override
      public MutableComponent getFormattedName(final Component teamMemberName) {
@@ -30498,7 +30667,7 @@ index 2bdbb8451974f0b8d6e94d390ac735f4ccffd954..a7a3329ecf0d08b126e3715e4f3bcca8
      }
  
      public static MutableComponent formatNameForTeam(final @Nullable Team team, final Component name) {
-@@ -125,51 +170,66 @@ public class PlayerTeam extends Team {
+@@ -125,51 +169,66 @@ public class PlayerTeam extends Team {
  
      @Override
      public boolean isAllowFriendlyFire() {
@@ -30575,7 +30744,7 @@ index 2bdbb8451974f0b8d6e94d390ac735f4ccffd954..a7a3329ecf0d08b126e3715e4f3bcca8
          this.scoreboard.onTeamChanged(this);
      }
  
-@@ -192,13 +252,16 @@ public class PlayerTeam extends Team {
+@@ -192,13 +251,16 @@ public class PlayerTeam extends Team {
      }
  
      public void setColor(final Optional<TeamColor> color) {
@@ -30595,10 +30764,10 @@ index 2bdbb8451974f0b8d6e94d390ac735f4ccffd954..a7a3329ecf0d08b126e3715e4f3bcca8
  
      @Retention(RetentionPolicy.CLASS)
 diff --git a/net/minecraft/world/scores/Scoreboard.java b/net/minecraft/world/scores/Scoreboard.java
-index 4a15851bda30c918c58c96d2cb98b74f30db396c..86f2162041543226ae42908806559b5b45635653 100644
+index 4a15851bda30c918c58c96d2cb98b74f30db396c..30fd9a85094e36455f5afb7756f10db6eca90779 100644
 --- a/net/minecraft/world/scores/Scoreboard.java
 +++ b/net/minecraft/world/scores/Scoreboard.java
-@@ -30,17 +30,47 @@ import org.slf4j.Logger;
+@@ -30,17 +30,54 @@ import org.slf4j.Logger;
  public class Scoreboard {
      public static final String HIDDEN_SCORE_PREFIX = "#";
      private static final Logger LOGGER = LogUtils.getLogger();
@@ -30641,6 +30810,13 @@ index 4a15851bda30c918c58c96d2cb98b74f30db396c..86f2162041543226ae42908806559b5b
 +            throw new IllegalStateException(reason);
 +        }
 +    }
++
++    private static void tryThreadCheckScoreHolder(final ScoreHolder scoreHolder, final String reason) {
++        // global tick can own players on disconnect, this must pass
++        if (scoreHolder instanceof Entity entity && (!(entity instanceof net.minecraft.server.level.ServerPlayer) || !io.papermc.paper.threadedregions.RegionizedServer.isGlobalTickThread())) {
++            ca.spottedleaf.moonrise.common.util.TickThread.ensureTickThread(entity, reason);
++        }
++    }
 +    // Canvas end - region threading
  
      public @Nullable Objective getObjective(final @Nullable String name) {
@@ -30652,7 +30828,7 @@ index 4a15851bda30c918c58c96d2cb98b74f30db396c..86f2162041543226ae42908806559b5b
      public Objective addObjective(
          final String name,
          final ObjectiveCriteria criteria,
-@@ -53,19 +83,30 @@ public class Scoreboard {
+@@ -53,19 +90,28 @@ public class Scoreboard {
              throw new IllegalArgumentException("An objective with the name '" + name + "' already exists!");
          }
  
@@ -30668,9 +30844,7 @@ index 4a15851bda30c918c58c96d2cb98b74f30db396c..86f2162041543226ae42908806559b5b
      public final void forAllObjectives(final ObjectiveCriteria criteria, final ScoreHolder name, final Consumer<ScoreAccess> operation) {
 -        this.objectivesByCriteria.getOrDefault(criteria, Collections.emptyList()).forEach(o -> operation.accept(this.getOrCreatePlayerScore(name, o, true)));
 +        // Canvas start - region threading
-+        if (name instanceof Entity entity) {
-+            ca.spottedleaf.moonrise.common.util.TickThread.ensureTickThread(entity, "Cannot iterate over objectives for entity async");
-+        }
++        tryThreadCheckScoreHolder(name, "Cannot iterate over objectives for entity async");
 +        // this basically is just for each objective that has a certain criteria instance
 +        for (final Objective objective : this.objectivesByName.values()) {
 +            if (objective.getCriteria() == criteria) {
@@ -30686,15 +30860,11 @@ index 4a15851bda30c918c58c96d2cb98b74f30db396c..86f2162041543226ae42908806559b5b
      }
  
      public ScoreAccess getOrCreatePlayerScore(final ScoreHolder holder, final Objective objective) {
-@@ -73,18 +114,36 @@ public class Scoreboard {
+@@ -73,18 +119,32 @@ public class Scoreboard {
      }
  
      public ScoreAccess getOrCreatePlayerScore(final ScoreHolder scoreHolder, final Objective objective, final boolean forceWritable) {
-+        // Canvas start - region threading
-+        if (scoreHolder instanceof Entity entity) {
-+            ca.spottedleaf.moonrise.common.util.TickThread.ensureTickThread(entity, "Cannot get or create score for entity async");
-+        }
-+        // Canvas end - region threading
++        tryThreadCheckScoreHolder(scoreHolder, "Cannot get or create score for entity async"); // Canvas - region threading
          final boolean canModify = forceWritable || !objective.getCriteria().isReadOnly();
          PlayerScores playerScore = this.getOrCreatePlayerInfo(scoreHolder.getScoreboardName());
          final MutableBoolean requiresSync = new MutableBoolean();
@@ -30702,13 +30872,13 @@ index 4a15851bda30c918c58c96d2cb98b74f30db396c..86f2162041543226ae42908806559b5b
          return new ScoreAccess() {
 +            // Canvas start - region threading
 +
-+            @Override
+             @Override
+-            public int get() {
 +            public synchronized int add(final int count) {
 +                return ScoreAccess.super.add(count);
 +            }
 +
-             @Override
--            public int get() {
++            @Override
 +            public synchronized int increment() {
 +                return ScoreAccess.super.increment();
 +            }
@@ -30725,7 +30895,7 @@ index 4a15851bda30c918c58c96d2cb98b74f30db396c..86f2162041543226ae42908806559b5b
                  if (!canModify) {
                      throw new IllegalStateException("Cannot modify read-only score");
                  }
-@@ -109,12 +168,12 @@ public class Scoreboard {
+@@ -109,12 +169,12 @@ public class Scoreboard {
              }
  
              @Override
@@ -30740,7 +30910,7 @@ index 4a15851bda30c918c58c96d2cb98b74f30db396c..86f2162041543226ae42908806559b5b
                  if (requiresSync.isTrue() || !Objects.equals(display, score.display())) {
                      score.display(display);
                      this.sendScoreToPlayers();
-@@ -122,13 +181,13 @@ public class Scoreboard {
+@@ -122,13 +182,13 @@ public class Scoreboard {
              }
  
              @Override
@@ -30756,7 +30926,7 @@ index 4a15851bda30c918c58c96d2cb98b74f30db396c..86f2162041543226ae42908806559b5b
                  return score.isLocked();
              }
  
-@@ -142,7 +201,7 @@ public class Scoreboard {
+@@ -142,7 +202,7 @@ public class Scoreboard {
                  this.setLocked(true);
              }
  
@@ -30765,7 +30935,7 @@ index 4a15851bda30c918c58c96d2cb98b74f30db396c..86f2162041543226ae42908806559b5b
                  score.setLocked(locked);
                  if (requiresSync.isTrue()) {
                      this.sendScoreToPlayers();
-@@ -158,14 +217,19 @@ public class Scoreboard {
+@@ -158,14 +218,19 @@ public class Scoreboard {
          };
      }
  
@@ -30788,7 +30958,7 @@ index 4a15851bda30c918c58c96d2cb98b74f30db396c..86f2162041543226ae42908806559b5b
              Score score = scores.get(objective);
              if (score != null) {
                  result.add(new PlayerScoreEntry(player, score.value(), score.display(), score.numberFormat()));
-@@ -183,22 +247,32 @@ public class Scoreboard {
+@@ -183,22 +248,28 @@ public class Scoreboard {
      }
  
      public Collection<ScoreHolder> getTrackedPlayers() {
@@ -30799,9 +30969,7 @@ index 4a15851bda30c918c58c96d2cb98b74f30db396c..86f2162041543226ae42908806559b5b
      public void resetAllPlayerScores(final ScoreHolder player) {
 -        PlayerScores removed = this.playerScores.remove(player.getScoreboardName());
 +        // Canvas start - region threading
-+        if (player instanceof Entity entity) {
-+            ca.spottedleaf.moonrise.common.util.TickThread.ensureTickThread(entity, "Cannot reset all scores for score holder async");
-+        }
++        tryThreadCheckScoreHolder(player, "Cannot reset all scores for score holder async");
 +        PlayerScores removed = this.scoresByName.remove(player.getScoreboardName());
 +        // Canvas end - region threading
          if (removed != null) {
@@ -30812,9 +30980,7 @@ index 4a15851bda30c918c58c96d2cb98b74f30db396c..86f2162041543226ae42908806559b5b
      public void resetSinglePlayerScore(final ScoreHolder player, final Objective objective) {
 -        PlayerScores scores = this.playerScores.get(player.getScoreboardName());
 +        // Canvas start - region threading
-+        if (player instanceof Entity entity) {
-+            ca.spottedleaf.moonrise.common.util.TickThread.ensureTickThread(entity, "Cannot reset single score for score holder async");
-+        }
++        tryThreadCheckScoreHolder(player, "Cannot reset single score for score holder async");
 +        PlayerScores scores = this.scoresByName.get(player.getScoreboardName());
 +        // Canvas end - region threading
          if (scores != null) {
@@ -30825,15 +30991,13 @@ index 4a15851bda30c918c58c96d2cb98b74f30db396c..86f2162041543226ae42908806559b5b
                  if (removedPlayer != null) {
                      this.onPlayerRemoved(player);
                  }
-@@ -209,83 +283,141 @@ public class Scoreboard {
+@@ -209,83 +280,139 @@ public class Scoreboard {
      }
  
      public Object2IntMap<Objective> listPlayerScores(final ScoreHolder player) {
 -        PlayerScores scores = this.playerScores.get(player.getScoreboardName());
 +        // Canvas start - region threading
-+        if (player instanceof Entity entity) {
-+            ca.spottedleaf.moonrise.common.util.TickThread.ensureTickThread(entity, "Cannot reset single score for score holder async");
-+        }
++        tryThreadCheckScoreHolder(player, "Cannot reset single score for score holder async");
 +        PlayerScores scores = this.scoresByName.get(player.getScoreboardName());
 +        // Canvas end - region threading
          return scores != null ? scores.listScores() : Object2IntMaps.emptyMap();
@@ -31003,7 +31167,7 @@ index 4a15851bda30c918c58c96d2cb98b74f30db396c..86f2162041543226ae42908806559b5b
      }
  
      public void removePlayerFromTeam(final String player, final PlayerTeam team) {
-@@ -293,20 +425,32 @@ public class Scoreboard {
+@@ -293,20 +420,32 @@ public class Scoreboard {
              throw new IllegalStateException("Player is either on another team or not on any team. Cannot remove from team '" + team.getName() + "'.");
          }
  
@@ -31041,7 +31205,7 @@ index 4a15851bda30c918c58c96d2cb98b74f30db396c..86f2162041543226ae42908806559b5b
      }
  
      public void onObjectiveAdded(final Objective objective) {
-@@ -339,15 +483,16 @@ public class Scoreboard {
+@@ -339,15 +478,16 @@ public class Scoreboard {
      public void onTeamRemoved(final PlayerTeam team) {
      }
  
@@ -31063,7 +31227,7 @@ index 4a15851bda30c918c58c96d2cb98b74f30db396c..86f2162041543226ae42908806559b5b
              .entrySet()
              .stream()
              .flatMap(
-@@ -363,7 +508,9 @@ public class Scoreboard {
+@@ -363,7 +503,9 @@ public class Scoreboard {
              .toList();
      }
  
@@ -31073,7 +31237,7 @@ index 4a15851bda30c918c58c96d2cb98b74f30db396c..86f2162041543226ae42908806559b5b
          Objective objective = this.getObjective(score.objective);
          if (objective == null) {
              LOGGER.error("Unknown objective {} for name {}, ignoring", score.objective, score.owner);
-@@ -373,10 +520,13 @@ public class Scoreboard {
+@@ -373,10 +515,13 @@ public class Scoreboard {
      }
  
      protected List<PlayerTeam.Packed> packPlayerTeams() {
@@ -31087,7 +31251,7 @@ index 4a15851bda30c918c58c96d2cb98b74f30db396c..86f2162041543226ae42908806559b5b
          PlayerTeam team = this.addPlayerTeam(packed.name());
          packed.displayName().ifPresent(team::setDisplayName);
          team.setColor(packed.color());
-@@ -394,10 +544,13 @@ public class Scoreboard {
+@@ -394,10 +539,13 @@ public class Scoreboard {
      }
  
      protected List<Objective.Packed> packObjectives() {
@@ -31101,7 +31265,7 @@ index 4a15851bda30c918c58c96d2cb98b74f30db396c..86f2162041543226ae42908806559b5b
          this.addObjective(
              objective.name(),
              objective.criteria(),
-@@ -409,6 +562,7 @@ public class Scoreboard {
+@@ -409,6 +557,7 @@ public class Scoreboard {
      }
  
      protected Map<DisplaySlot, String> packDisplaySlots() {

@@ -2,6 +2,7 @@ package io.canvasmc.canvas.util;
 
 import com.google.common.base.Preconditions;
 import io.canvasmc.canvas.ClientV2;
+import io.papermc.paper.threadedregions.TickRegionScheduler;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -333,6 +334,36 @@ public class Util {
             return pluralWhole(seconds / 3_600, "hour");
 
         return pluralWhole(seconds / 86_400, "day");
+    }
+
+    /**
+     * Similar to a generic thread-check from {@link ca.spottedleaf.moonrise.common.util.TickThread}, however this
+     * checks for a specific handle instead of data associated with the handle like a location
+     *
+     * @param handle
+     *     the schedulable handle to check for
+     * @param reason
+     *     the reason if this fails
+     */
+    public static void ensureScheduleHandle(final TickRegionScheduler.RegionScheduleHandle handle, final String reason) {
+        if (handle != TickRegionScheduler.getCurrentTickingTask()) {
+            throw new IllegalStateException(reason);
+        }
+    }
+
+    /**
+     * Allows checking if a boolean flag is enabled leniently. This allows for the user to just declare the flag like
+     * {@code -DCanvas.test} instead of {@code -DCanvas.test=true} for example. This accepts both of those, defaulting
+     * to {@code true} when the {@code =<value>} isn't present.
+     *
+     * @param flag
+     *     the property to search for
+     *
+     * @return the leniently parsed property
+     */
+    public static boolean isFlagEnabled(final String flag) {
+        final String property = System.getProperty(flag);
+        return property != null && (property.isEmpty() || Boolean.parseBoolean(property));
     }
 
     private static String pluralDecimal(final double value, final String unit) {

@@ -5,7 +5,7 @@ Subject: [PATCH] Remove Vanilla Profiler
 
 
 diff --git a/net/minecraft/commands/Commands.java b/net/minecraft/commands/Commands.java
-index d210f991366796d84e947df0a057c1adc62824f8..9a49c1577def2517db99dcc5d34c7a99f8981075 100644
+index 8cbe58b8ac096b04e9f76d973ee21e8ad4fd17c0..8388e19836fb79735f50ec2093316a4b25512073 100644
 --- a/net/minecraft/commands/Commands.java
 +++ b/net/minecraft/commands/Commands.java
 @@ -56,7 +56,6 @@ import net.minecraft.server.commands.CloneCommands;
@@ -32,7 +32,7 @@ index d210f991366796d84e947df0a057c1adc62824f8..9a49c1577def2517db99dcc5d34c7a99
          DefaultGameModeCommands.register(this.dispatcher);
          DialogCommand.register(this.dispatcher, context);
          DifficultyCommand.register(this.dispatcher);
-@@ -370,7 +367,6 @@ public class Commands {
+@@ -371,7 +368,6 @@ public class Commands {
          org.spigotmc.AsyncCatcher.catchOp("Cannot perform command async");
          // Paper end
          CommandSourceStack sender = command.getContext().getSource();
@@ -40,7 +40,7 @@ index d210f991366796d84e947df0a057c1adc62824f8..9a49c1577def2517db99dcc5d34c7a99
          ContextChain<CommandSourceStack> commandChain = finishParsing(command, commandString, sender);
  
          try {
-@@ -405,8 +401,6 @@ public class Commands {
+@@ -406,8 +402,6 @@ public class Commands {
                  sender.sendFailure(Component.literal(Util.describeError(e)));
                  LOGGER.error("'/{}' threw an exception", commandString, e);
              }
@@ -49,7 +49,7 @@ index d210f991366796d84e947df0a057c1adc62824f8..9a49c1577def2517db99dcc5d34c7a99
          }
      }
  
-@@ -464,7 +458,7 @@ public class Commands {
+@@ -465,7 +459,7 @@ public class Commands {
              int chainLimit = Math.max(1, gameRules.get(GameRules.MAX_COMMAND_SEQUENCE_LENGTH));
              int forkLimit = gameRules.get(GameRules.MAX_COMMAND_FORKS);
  
@@ -1138,7 +1138,7 @@ index d1934604c0f592e5346b3f7856ec6efc35b52da7..a2794a5d8e956cef41da4e34fdba245f
          this.stopUsingItem();
          this.connection.send(new ClientboundPlayerAbilitiesPacket(this.getAbilities()));
 diff --git a/net/minecraft/server/network/ServerCommonPacketListenerImpl.java b/net/minecraft/server/network/ServerCommonPacketListenerImpl.java
-index bd1f403c021db7a2206b26fbe62b6d793bdba0a7..b124679701ca7c894951ac78562e9161cd2aef5d 100644
+index e40ee5e67cd423e36dda489cfcc5ffca2956a66e..b328b14919e837546b5e7081ed6e239e4486ee53 100644
 --- a/net/minecraft/server/network/ServerCommonPacketListenerImpl.java
 +++ b/net/minecraft/server/network/ServerCommonPacketListenerImpl.java
 @@ -26,7 +26,6 @@ import net.minecraft.server.level.ClientInformation;
@@ -2204,7 +2204,7 @@ index 4f8439afa4ea602b662e68e6b86e9d927fb6a481..21cd766bcb0172f1dcebb34c72a050b7
              this.assignProfessionWhenSpawned = false;
          }
 diff --git a/net/minecraft/world/level/Level.java b/net/minecraft/world/level/Level.java
-index 9286d9bcf3ec4069e77d3133f3d7bf29b2370c5a..f9570994c42e517fae35f86b948bbdc249fb4ad4 100644
+index 98cadf77878240889fdb0f496975ac055db6246e..0d2daaa341785b84031c52ea23942b4d6a6fe287 100644
 --- a/net/minecraft/world/level/Level.java
 +++ b/net/minecraft/world/level/Level.java
 @@ -37,7 +37,6 @@ import net.minecraft.util.AbortableIterationConsumer;
@@ -2215,7 +2215,7 @@ index 9286d9bcf3ec4069e77d3133f3d7bf29b2370c5a..f9570994c42e517fae35f86b948bbdc2
  import net.minecraft.util.random.WeightedList;
  import net.minecraft.world.TickRateManager;
  import net.minecraft.world.attribute.EnvironmentAttributeSystem;
-@@ -220,7 +219,6 @@ public abstract class Level implements LevelAccessor, AutoCloseable, ca.spottedl
+@@ -231,7 +230,6 @@ public abstract class Level implements LevelAccessor, AutoCloseable, ca.spottedl
  
      @Override
      public final <T extends Entity> List<T> getEntitiesOfClass(final Class<T> entityClass, final AABB boundingBox, final Predicate<? super T> predicate) {
@@ -2223,7 +2223,7 @@ index 9286d9bcf3ec4069e77d3133f3d7bf29b2370c5a..f9570994c42e517fae35f86b948bbdc2
          final List<T> ret = new java.util.ArrayList<>();
  
          ((ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemLevel)this).moonrise$getEntityLookup().getEntities(entityClass, null, boundingBox, ret, predicate);
-@@ -230,7 +228,6 @@ public abstract class Level implements LevelAccessor, AutoCloseable, ca.spottedl
+@@ -241,7 +239,6 @@ public abstract class Level implements LevelAccessor, AutoCloseable, ca.spottedl
  
      @Override
      public final List<Entity> moonrise$getHardCollidingEntities(final Entity entity, final AABB box, final Predicate<? super Entity> predicate) {
@@ -2231,7 +2231,7 @@ index 9286d9bcf3ec4069e77d3133f3d7bf29b2370c5a..f9570994c42e517fae35f86b948bbdc2
          final List<Entity> ret = new java.util.ArrayList<>();
  
          ((ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemLevel)this).moonrise$getEntityLookup().getHardCollidingEntities(entity, box, ret, predicate);
-@@ -1767,7 +1764,6 @@ public abstract class Level implements LevelAccessor, AutoCloseable, ca.spottedl
+@@ -1779,7 +1776,6 @@ public abstract class Level implements LevelAccessor, AutoCloseable, ca.spottedl
  
      @Override
      public List<Entity> getEntities(final @Nullable Entity except, final AABB bb, final Predicate<? super Entity> selector) {
@@ -2239,7 +2239,7 @@ index 9286d9bcf3ec4069e77d3133f3d7bf29b2370c5a..f9570994c42e517fae35f86b948bbdc2
          // Paper start - rewrite chunk system
          final List<Entity> ret = new java.util.ArrayList<>();
  
-@@ -1796,8 +1792,6 @@ public abstract class Level implements LevelAccessor, AutoCloseable, ca.spottedl
+@@ -1808,8 +1804,6 @@ public abstract class Level implements LevelAccessor, AutoCloseable, ca.spottedl
      public <T extends Entity> void getEntities(final EntityTypeTest<Entity, T> entityTypeTest,
                                                 final AABB boundingBox, final Predicate<? super T> predicate,
                                                 final List<? super T> into, final int maxCount) {
@@ -2248,7 +2248,7 @@ index 9286d9bcf3ec4069e77d3133f3d7bf29b2370c5a..f9570994c42e517fae35f86b948bbdc2
          if (entityTypeTest instanceof net.minecraft.world.entity.EntityType<T> byType) {
              if (maxCount != Integer.MAX_VALUE) {
                  ((ca.spottedleaf.moonrise.patches.chunk_system.level.ChunkSystemLevel)this).moonrise$getEntityLookup().getEntities(byType, boundingBox, into, predicate, maxCount);
-@@ -1882,7 +1876,6 @@ public abstract class Level implements LevelAccessor, AutoCloseable, ca.spottedl
+@@ -1894,7 +1888,6 @@ public abstract class Level implements LevelAccessor, AutoCloseable, ca.spottedl
      // Paper end - rewrite chunk system
  
      public <T extends Entity> boolean hasEntities(final EntityTypeTest<Entity, T> type, final AABB bb, final Predicate<? super T> selector) {
