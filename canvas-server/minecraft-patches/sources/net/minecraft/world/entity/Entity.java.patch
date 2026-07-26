@@ -236,28 +236,10 @@
  
      protected void transform(final @Nullable Vec3 pos, final @Nullable Float yaw, final @Nullable Float pitch, final @Nullable Vec3 velocity) {
          if (yaw != null) {
-@@ -4724,7 +_,7 @@
-     public boolean endPortalLogicAsync(final BlockPos portalPos) {
-         ca.spottedleaf.moonrise.common.util.TickThread.ensureTickThread(this, "Cannot portal entity async");
- 
--        ServerLevel destination = this.level().getServer().getLevel(this.level().getTypeKey() == net.minecraft.world.level.dimension.LevelStem.END ? Level.OVERWORLD : Level.END);
-+        ServerLevel destination = this.level().getServer().getLevel(this.level().getTypeKey() == net.minecraft.world.level.dimension.LevelStem.END ? io.canvasmc.canvas.GlobalConfiguration.fetchRespawnDimensionKey() : Level.END); // Canvas - default respawn dimension config
-         if (destination == null) {
-             // wat
-             return false;
-@@ -4736,7 +_,7 @@
-     public boolean netherPortalLogicAsync(final BlockPos portalPos) {
-         ca.spottedleaf.moonrise.common.util.TickThread.ensureTickThread(this, "Cannot portal entity async");
- 
--        ServerLevel destination = this.level().getServer().getLevel(this.level().getTypeKey() == net.minecraft.world.level.dimension.LevelStem.NETHER ? Level.OVERWORLD : Level.NETHER);
-+        ServerLevel destination = this.level().getServer().getLevel(this.level().getTypeKey() == net.minecraft.world.level.dimension.LevelStem.NETHER ? io.canvasmc.canvas.GlobalConfiguration.fetchRespawnDimensionKey() : Level.NETHER); // Canvas - default respawn dimension config
-         if (destination == null) {
-             // wat
-             return false;
-@@ -4844,14 +_,18 @@
+@@ -4767,16 +_,20 @@
                          targetPos, 16, // load 16 blocks to be safe from block physics
                          ca.spottedleaf.concurrentutil.util.Priority.HIGH,
-                         (chunks) -> {
+                         (_) -> {
 -                            net.minecraft.world.level.levelgen.feature.EndPlatformFeature.createEndPlatform(destination, targetPos.below(), true, null);
 +                            // Canvas start - vanilla non-player End portal placement
 +                            // Players stand on the platform; non-player entities retain the extra block of clearance
@@ -268,26 +250,33 @@
                              // the portal obsidian is placed at targetPos.y - 2, so if we want to place the entity
                              // on the obsidian, we need to spawn at targetPos.y - 1
                              portalInfoCompletable.complete(
-                                 new net.minecraft.world.level.portal.TeleportTransition(
+                                 new TeleportTransition(
 -                                    destination, Vec3.atBottomCenterOf(targetPos.below()), Vec3.ZERO, Direction.WEST.toYRot(), 0.0f,
--                                    Relative.union(Relative.DELTA, Set.of(Relative.X_ROT)),
 +                                    destination, finalPos, Vec3.ZERO, Direction.WEST.toYRot(), 0.0f,
+                                     false, false,
+-                                    Relative.union(Relative.DELTA, Set.of(Relative.X_ROT)),
 +                                    Set.of(), // Canvas - End portals preserve world-space momentum; applied per entity below
                                      TeleportTransition.PLAY_PORTAL_SOUND.then(TeleportTransition.PLACE_PORTAL_TICKET),
-                                     org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.END_PORTAL
+                                     org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.END_PORTAL,
+                                     TeleportTransition.PassengerTeleportationMode.POSITION_RIDER
                                  )
-@@ -4923,7 +_,9 @@
+@@ -4849,7 +_,13 @@
                              portalInfoCompletable.complete(
-                                 new TeleportTransition(destination, Vec3.atCenterOf(targetPos), Vec3.ZERO,
+-                                new TeleportTransition(destination, Vec3.atCenterOf(targetPos), Vec3.ZERO,
++                                new TeleportTransition(
++                                    destination, Vec3.atCenterOf(targetPos), Vec3.ZERO,
                                      90.0f, 0.0f,
 -                                    TeleportTransition.PLAY_PORTAL_SOUND.then(TeleportTransition.PLACE_PORTAL_TICKET))
++                                    false, false,
 +                                    Relative.union(Relative.direction(true, true, true), Set.of(Relative.X_ROT)),
 +                                    TeleportTransition.PLAY_PORTAL_SOUND.then(TeleportTransition.PLACE_PORTAL_TICKET),
-+                                    org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.NETHER_PORTAL)
++                                    org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.NETHER_PORTAL,
++                                    TeleportTransition.PassengerTeleportationMode.RELATIVE
++                                )
                              );
                              return;
                          }
-@@ -5095,6 +_,18 @@
+@@ -5022,6 +_,18 @@
              canvas$ensureCanPortalAsync(destination, takePassengers);
          }
          final ServerLevel finalDestination = destination;
@@ -306,7 +295,7 @@
          // Canvas end - region threading
  
          Vec3 initialPosition = this.position();
-@@ -5117,7 +_,12 @@
+@@ -5044,7 +_,12 @@
              node.root.prePortalLogic(originWorld, destination, type);
          }
  
@@ -319,7 +308,7 @@
              // we will update pos/rot/speed later
              node.root = node.root.transformForAsyncTeleport(destination, null, null, null, null);
              // set portal cooldown
-@@ -5128,6 +_,7 @@
+@@ -5055,6 +_,7 @@
              }
              // Canvas end - region threading
          }
@@ -327,7 +316,7 @@
  
          // ensure the region is always ticking in case of a shutdown
          // otherwise, the shutdown will not be able to complete the shutdown as it requires a ticking region
-@@ -5156,8 +_,12 @@
+@@ -5083,8 +_,12 @@
                  teleportHoldId
              );
              // adjust passenger tree to final pos/rot/speed
@@ -342,7 +331,7 @@
              }
  
              // place
-@@ -5173,8 +_,8 @@
+@@ -5100,8 +_,8 @@
                      this.canvas$teleportingToDimension = null;
                      this.canvas$lastTeleportOrigin = null;
                      // Canvas end - region threading
@@ -353,12 +342,3 @@
                      }
                      // Canvas start - region threading
                      if (io.canvasmc.canvas.event.EntityPostPortalAsyncEvent.getHandlerList().getRegisteredListeners().length > 0) {
-@@ -5433,7 +_,7 @@
- 
-     public boolean canTeleport(final Level from, final Level to) {
-         if (!this.isAlive() || !this.valid) return false; // Paper - Fix item duplication and teleport issues
--        if (from.dimension() == Level.END && to.dimension() == Level.OVERWORLD) {
-+        if (from.dimension() == Level.END && to.dimension() == io.canvasmc.canvas.GlobalConfiguration.fetchRespawnDimensionKey()) { // Canvas - default respawn dimension config
-             for (Entity passenger : this.getPassengers()) {
-                 if (passenger instanceof ServerPlayer player && !player.seenCredits) {
-                     return false;
