@@ -1,0 +1,12 @@
+--- a/net/minecraft/world/level/block/entity/SculkCatalystBlockEntity.java
++++ b/net/minecraft/world/level/block/entity/SculkCatalystBlockEntity.java
+@@ -127,7 +_,8 @@
+         }
+ 
+         private void tryAwardItSpreadsAdvancement(final Level level, final LivingEntity mob) {
+-            if (mob.getLastHurtByMob() instanceof ServerPlayer player) {
++            if (mob.getLastHurtByMob() instanceof ServerPlayer player
++                && ca.spottedleaf.moonrise.common.util.TickThread.isTickThreadFor(player)) { // Canvas - do not trigger player advancements from another region
+                 DamageSource damageSource = mob.getLastDamageSource() == null ? level.damageSources().playerAttack(player) : mob.getLastDamageSource();
+                 CriteriaTriggers.KILL_MOB_NEAR_SCULK_CATALYST.trigger(player, mob, damageSource);
+             }

@@ -236,6 +236,44 @@
  
      protected void transform(final @Nullable Vec3 pos, final @Nullable Float yaw, final @Nullable Float pitch, final @Nullable Vec3 velocity) {
          if (yaw != null) {
+@@ -4462,9 +_,14 @@
+     protected Entity transformForAsyncTeleport(
+         final ServerLevel destination, final @Nullable Vec3 pos, final @Nullable Float yaw, final @Nullable Float pitch, final @Nullable Vec3 velocity
+     ) {
+-        this.removeAfterChangingDimensions(); // remove before so that any CBEntity#getHandle call affects this entity before copying
+-
+-        Entity copy = this.getType().create(destination, EntitySpawnReason.DIMENSION_TRAVEL);
++        Entity copy = this.getType().create(
++            destination,
++            new EntitySpawnRequest(EntitySpawnReason.DIMENSION_TRAVEL, destination == this.level())
++        );
++        if (copy == null) {
++            throw new IllegalStateException("Failed to create async teleport copy for entity type " + EntityType.getKey(this.getType()));
++        }
++        this.removeAfterChangingDimensions(); // Canvas - keep the source until a destination copy exists
+         copy.restoreFrom(this);
+         copy.transform(pos, yaw, pitch, velocity);
+         // vanilla code used to call remove _after_ copying, and some stuff is required to be after copy - so add hook here
+@@ -4520,6 +_,9 @@
+         if (!this.canTeleportAsync()) {
+             throw new TeleportValidationException("Entity not able to teleport async. Is the entity removed or in a bed?");
+         }
++        if (destination != this.level() && !(this instanceof ServerPlayer) && !this.getType().canSpawn(destination)) {
++            throw new TeleportValidationException("Entity type " + EntityType.getKey(this.getType()) + " cannot be created in the destination world");
++        }
+         this.getBukkitEntity(); // force bukkit entity to be created before TPing
+ 
+         if (destination.canvas$unloadTicket.isPresent()) {
+@@ -4532,6 +_,9 @@
+                 if (!entity.canTeleportAsync()) {
+                     throw new TeleportValidationException("Indirect passenger not able to teleport async. Is the passenger removed or dead?");
+                 }
++                if (destination != entity.level() && !(entity instanceof ServerPlayer) && !entity.getType().canSpawn(destination)) {
++                    throw new TeleportValidationException("Passenger type " + EntityType.getKey(entity.getType()) + " cannot be created in the destination world");
++                }
+                 entity.getBukkitEntity(); // force bukkit entity to be created before TPing
+             }
+         } else {
 @@ -4799,16 +_,20 @@
                          targetPos, 16, // load 16 blocks to be safe from block physics
                          ca.spottedleaf.concurrentutil.util.Priority.HIGH,
@@ -276,6 +314,16 @@
                              );
                              return;
                          }
+@@ -5000,6 +_,9 @@
+         if (!this.canTeleportAsync()) {
+             throw new TeleportValidationException("Entity not able to teleport async. Is the entity removed or in a bed?");
+         }
++        if (to != null && to != this.level() && !(this instanceof ServerPlayer) && !this.getType().canSpawn(to)) {
++            throw new TeleportValidationException("Entity type " + EntityType.getKey(this.getType()) + " cannot be created in the destination world");
++        }
+         if (considerPassengers) {
+             for (Entity entity : this.passengers) {
+                 entity.canvas$ensureCanPortalAsync(to, true, true);
 @@ -5054,6 +_,18 @@
              canvas$ensureCanPortalAsync(destination, takePassengers);
          }

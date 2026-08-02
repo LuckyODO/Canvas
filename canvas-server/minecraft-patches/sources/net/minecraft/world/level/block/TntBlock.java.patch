@@ -1,0 +1,11 @@
+--- a/net/minecraft/world/level/block/TntBlock.java
++++ b/net/minecraft/world/level/block/TntBlock.java
+@@ -136,7 +_,7 @@
+     protected void onProjectileHit(final Level level, final BlockState state, final BlockHitResult blockHit, final Projectile projectile) {
+         if (level instanceof ServerLevel serverLevel) {
+             BlockPos pos = blockHit.getBlockPos();
+-            Entity owner = projectile.getOwner();
++            Entity owner = projectile.getOwnerRaw(); // Canvas - preserve the owner when priming TNT across regions
+             if (projectile.isOnFire()
+                 && projectile.mayInteract(serverLevel, pos)
+                 && prime(level, pos, owner instanceof LivingEntity livingEntity ? livingEntity : null, () -> org.bukkit.craftbukkit.event.CraftEventFactory.callEntityChangeBlockEvent(projectile, pos, state.getFluidState().createLegacyBlock()) && org.bukkit.craftbukkit.event.CraftEventFactory.callTNTPrimeEvent(level, pos, org.bukkit.event.block.TNTPrimeEvent.PrimeCause.PROJECTILE, projectile, null))) { // Paper
