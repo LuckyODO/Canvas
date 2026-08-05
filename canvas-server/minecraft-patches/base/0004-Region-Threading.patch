@@ -2408,10 +2408,10 @@ index 0000000000000000000000000000000000000000..6aef9128633787de145054999648d8d2
 +import org.jspecify.annotations.NullMarked;
 diff --git a/io/canvasmc/canvas/threadedregions/entities/EnderPearls.java b/io/canvasmc/canvas/threadedregions/entities/EnderPearls.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..8870783edd236a63380a6cdcb4a8251464a99d55
+index 0000000000000000000000000000000000000000..c184cc4cc7023e001055499e3d3d93d2152d6d30
 --- /dev/null
 +++ b/io/canvasmc/canvas/threadedregions/entities/EnderPearls.java
-@@ -0,0 +1,239 @@
+@@ -0,0 +1,245 @@
 +package io.canvasmc.canvas.threadedregions.entities;
 +
 +import ca.spottedleaf.concurrentutil.util.Priority;
@@ -2600,7 +2600,13 @@ index 0000000000000000000000000000000000000000..8870783edd236a63380a6cdcb4a82514
 +
 +        public void spawn() {
 +            final CompoundTag data = serialized.getCompound("data").orElseThrow();
-+            final ServerLevel level = MinecraftServer.getServer().getLevel(serialized.read("level", Level.RESOURCE_KEY_CODEC).orElseThrow());
++            final ServerLevel level = serialized.read("level", Level.RESOURCE_KEY_CODEC)
++                .map(MinecraftServer.getServer()::getLevel)
++                .orElse(null);
++
++            // the level can be null if the target world gets removed or something
++            // between runtimes or even during runtime, so we check to be sure it's nonnull
++
 +            if (level == null) {
 +                LOGGER.error("Level ({}) did not exist, skipping pearl spawn", serialized.getString("level"));
 +                return;
@@ -24073,7 +24079,7 @@ index 96e58e20f731e85acbe13d44104b2f48ea62e21a..35fcdc983da33142890d1fb2f6123d39
                  this.partialTick = this.partialTick + this.rate;
                  int fullTicks = Mth.floor(this.partialTick);
 diff --git a/net/minecraft/world/damagesource/CombatTracker.java b/net/minecraft/world/damagesource/CombatTracker.java
-index 75d3c466c7fdc3de02360303ca6afbeba83c7422..ea1cb8714c7fa366f912ff324cee6402cc5c5d68 100644
+index dd9fb54f50ebfeef71dcec0db76618d4916888e1..75c4e1966008826060047eead980b7b0f6e09ae4 100644
 --- a/net/minecraft/world/damagesource/CombatTracker.java
 +++ b/net/minecraft/world/damagesource/CombatTracker.java
 @@ -74,7 +74,7 @@ public class CombatTracker {
@@ -26934,7 +26940,7 @@ index 07aa7fae79edff4c92b8f153659f16b9769c80ff..1606a9a2245edaae7fd46b0ecd9a2ca7
      protected void stopTrading() {
          this.setTradingPlayer(null);
 diff --git a/net/minecraft/world/entity/npc/villager/Villager.java b/net/minecraft/world/entity/npc/villager/Villager.java
-index 21cd766bcb0172f1dcebb34c72a050b78cd4f365..753a7d1f1b464b27dc375f80dddd41e45d58c149 100644
+index 0b7a25404354758da22ed4507e8e6f7ce213c18f..53056a51f7b01a2a78bea38e6f1a68a642e9fda4 100644
 --- a/net/minecraft/world/entity/npc/villager/Villager.java
 +++ b/net/minecraft/world/entity/npc/villager/Villager.java
 @@ -214,7 +214,7 @@ public class Villager extends AbstractVillager implements VillagerDataHolder, Re
@@ -27037,7 +27043,7 @@ index 8ee86ae52dfca7273f57f157193f84ed8a70d288..d07556f3862f3adeee94ec8803ebef85
              return true;
          }
 diff --git a/net/minecraft/world/entity/player/Player.java b/net/minecraft/world/entity/player/Player.java
-index 5d4b3ed09fe10f545d0720b2919f0d6c822d5196..f6ae8bd35446baf3d581d57be60d6b501424ce1d 100644
+index 2a71a2fa949b3a7fb8ff2c44ec3a3d8636237142..a0f33d94cc4776c4151bd3274656bbffd16ed26e 100644
 --- a/net/minecraft/world/entity/player/Player.java
 +++ b/net/minecraft/world/entity/player/Player.java
 @@ -1386,6 +1386,14 @@ public abstract class Player extends Avatar implements ContainerUser {
