@@ -265,12 +265,6 @@ public class GlobalConfiguration extends Part {
         return INSTANCE;
     }
 
-    public static boolean isEndPortalFallingBlockDuplicationEnabled() {
-        return io.papermc.paper.configuration.GlobalConfiguration.get()
-            .unsupportedSettings.allowUnsafeEndPortalTeleportation
-            || getInstance().allowUnsafeEndPortalTeleportation;
-    }
-
     public static ClientV2.BuildStatus getBuildStatus() {
         return BUILD_STATUS;
     }
@@ -556,9 +550,9 @@ public class GlobalConfiguration extends Part {
             );
         option("allowUnsafeEndPortalTeleportation")
             .docs(
-                "Legacy Canvas alias for Paper's unsupported-settings.allow-unsafe-end-portal-teleportation.",
-                "Enables the upstream safe source-side falling-block continuation for End portal duplication.",
-                "It no longer enables the former direct async teleport and force-tick behavior."
+                "Allows non-player entities to use End portals through Canvas' async portal path. This enables",
+                "sand duping machines, but can cause unsafe teleportation behavior in Folia's region threading model.",
+                "See: https://github.com/PaperMC/Folia/issues/297"
             );
         option("cacheMinecraft2BukkitEntityTypeConversion").docs("Whether to cache expensive CraftEntityType#minecraftToBukkit call");
         option("tileEntitySnapshotCreation").docs("Enables creation of tile entity snapshots on retrieving blockstates");
