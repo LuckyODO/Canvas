@@ -6,6 +6,7 @@ import io.canvasmc.canvas.configuration.ConfigurationProvider;
 import io.canvasmc.canvas.configuration.Part;
 import io.canvasmc.canvas.configuration.Resolver;
 import io.canvasmc.canvas.configuration.Style;
+import io.canvasmc.canvas.configuration.Undocumented;
 import io.canvasmc.canvas.configuration.Validator;
 import io.canvasmc.canvas.simd.SIMDDetection;
 import io.canvasmc.canvas.subcommands.RegionBarSubCommand;
@@ -264,6 +265,12 @@ public class GlobalConfiguration extends Part {
         return INSTANCE;
     }
 
+    public static boolean isEndPortalFallingBlockDuplicationEnabled() {
+        return io.papermc.paper.configuration.GlobalConfiguration.get()
+            .unsupportedSettings.allowUnsafeEndPortalTeleportation
+            || getInstance().allowUnsafeEndPortalTeleportation;
+    }
+
     public static ClientV2.BuildStatus getBuildStatus() {
         return BUILD_STATUS;
     }
@@ -514,6 +521,18 @@ public class GlobalConfiguration extends Part {
                     "If alternative playerlist tick is enabled, this is the interval in ticks for how often",
                     "each bucket will be ticked"
                 ).greaterThan(0.0F);
+            option("purpurAlternativeKeepalive")
+                .docs(
+                    Style.create()
+                        .wordWrap(
+                            "Uses a different approach to keepalive ping timeouts.",
+                            "Enabling this sends a keepalive packet once per second to a player, and only kicks for timeout if none of them were responded to in 30 seconds.",
+                            "Responding to any of them in any order will keep the player connected.")
+                        .blank()
+                        .wordWrap("AKA, it won't kick your players because one packet gets dropped somewhere along the lines"));
+
+            option("flushLocationWhileKnockback")
+                .docs("Derived from Leaf, this synchronizes the player immediately when knocked back");
         }
 
         public boolean filterVelocityPacket = false;
@@ -521,6 +540,10 @@ public class GlobalConfiguration extends Part {
         public boolean alternativePlayerListTick = false;
         public int playerInfoSendInterval = 600;
         public boolean purpurAlternativeKeepalive = false;
+
+        // Originally from Leaf: https://github.com/Winds-Studio/Leaf/blob/58a4a9cb7994474e63ba49205cd21e89f8dacc9a/leaf-server/minecraft-patches/features/0216-Flush-location-while-knockback.patch
+        // License described in Leaf-Flush-location-while-knockback.patch
+        public boolean flushLocationWhileKnockback = false;
     }
 
     {
@@ -533,9 +556,9 @@ public class GlobalConfiguration extends Part {
             );
         option("allowUnsafeEndPortalTeleportation")
             .docs(
-                "Allows non-player entities to use End portals through Canvas' async portal path. This enables",
-                "sand duping machines, but can cause unsafe teleportation behavior in Folia's region threading model.",
-                "See: https://github.com/PaperMC/Folia/issues/297"
+                "Legacy Canvas alias for Paper's unsupported-settings.allow-unsafe-end-portal-teleportation.",
+                "Enables the upstream safe source-side falling-block continuation for End portal duplication.",
+                "It no longer enables the former direct async teleport and force-tick behavior."
             );
         option("cacheMinecraft2BukkitEntityTypeConversion").docs("Whether to cache expensive CraftEntityType#minecraftToBukkit call");
         option("tileEntitySnapshotCreation").docs("Enables creation of tile entity snapshots on retrieving blockstates");
@@ -574,8 +597,11 @@ public class GlobalConfiguration extends Part {
         public boolean enderChestPersistHiddenRows = true;
     }
 
+    @Undocumented("Doesn't require docs.")
     public boolean blacklistNonPlayerEntitiesFromEnteringNetherPortals = false;
+    @Undocumented("Doesn't require docs.")
     public boolean blacklistNonPlayerEntitiesFromEnteringEndPortals = false;
+    @Undocumented("Doesn't require docs.")
     public boolean blacklistNonPlayerEntitiesFromEnteringGatewayPortals = false;
 
     public Chat chat = new Chat();
@@ -619,6 +645,10 @@ public class GlobalConfiguration extends Part {
         public boolean allowEnchantingWithIncompatibleEnchants = false;
     }
 
+    {
+        option("disableLocatorBarInAllWorlds").docs("Disables the locator bar globally, removing the need to disable it using gamerules per-world");
+    }
+
     public boolean disableLocatorBarInAllWorlds = false;
 
     {
@@ -630,6 +660,7 @@ public class GlobalConfiguration extends Part {
 
     public Autosave autosave = new Autosave();
 
+    @Undocumented("Doesn't require docs.")
     public static class Autosave extends Part {
 
         {
