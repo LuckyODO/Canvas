@@ -12,3 +12,20 @@
              // CraftBukkit start - Entity in portal
              org.bukkit.event.entity.EntityPortalEnterEvent event = new org.bukkit.event.entity.EntityPortalEnterEvent(entity.getBukkitEntity(), org.bukkit.craftbukkit.util.CraftLocation.toBukkit(pos, level), org.bukkit.PortalType.ENDER); // Paper - add portal type
              if (!event.callEvent()) return; // Paper - make cancellable
+@@ -132,11 +_,13 @@
+ 
+     // Folia start - region threading
+     @Override
++    public boolean requiresPortalEntryBlockOwnership() {
++        return false;
++    }
++
++    @Override
+     public boolean portalAsync(ServerLevel sourceWorld, Entity portalTarget, BlockPos portalPos) {
+         if (!ca.spottedleaf.moonrise.common.util.TickThread.isTickThreadFor(portalTarget)) {
+-            return false;
+-        }
+-        if (!ca.spottedleaf.moonrise.common.util.TickThread.isTickThreadFor(sourceWorld, portalPos)) {
+             return false;
+         }
+ 

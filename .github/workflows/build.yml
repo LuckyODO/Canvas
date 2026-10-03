@@ -44,6 +44,9 @@ jobs:
           ./gradlew --no-daemon applyAllPatches
           ./gradlew --no-daemon createPaperclipJar
 
+      - name: Test portal behavior
+        run: ./gradlew --no-daemon :canvas-server:test --tests io.canvasmc.canvas.PortalMomentumTestSuite
+
       - name: Upload jar
         uses: actions/upload-artifact@v4
         with:

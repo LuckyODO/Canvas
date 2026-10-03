@@ -1,0 +1,22 @@
+--- a/net/minecraft/world/entity/item/FallingBlockEntity.java
++++ b/net/minecraft/world/entity/item/FallingBlockEntity.java
+@@ -288,7 +_,7 @@
+         }
+         // Paper end - Configurable falling blocks height nerf
+         if (
+-            io.papermc.paper.configuration.GlobalConfiguration.get().unsupportedSettings.allowUnsafeEndPortalTeleportation
++            io.canvasmc.canvas.GlobalConfiguration.isEndPortalFallingBlockDuplicationEnabled()
+                 && this.portalProcess != null
+                 && this.portalProcess.isSamePortal((net.minecraft.world.level.block.Portal) net.minecraft.world.level.block.Blocks.END_PORTAL)
+                 && this.handlePortal()
+@@ -313,9 +_,7 @@
+         if (
+             type != net.minecraft.world.entity.Entity.PortalType.END
+                 || !fromOrToEnd
+-                || !io.papermc.paper.configuration.GlobalConfiguration.get()
+-                    .unsupportedSettings
+-                    .allowUnsafeEndPortalTeleportation
++                || !io.canvasmc.canvas.GlobalConfiguration.isEndPortalFallingBlockDuplicationEnabled()
+         ) {
+             return null;
+         }

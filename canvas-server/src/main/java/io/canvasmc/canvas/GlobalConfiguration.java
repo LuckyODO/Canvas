@@ -263,6 +263,12 @@ public class GlobalConfiguration extends Part {
         return INSTANCE;
     }
 
+    public static boolean isEndPortalFallingBlockDuplicationEnabled() {
+        return io.papermc.paper.configuration.GlobalConfiguration.get()
+            .unsupportedSettings.allowUnsafeEndPortalTeleportation
+            || getInstance().allowUnsafeEndPortalTeleportation;
+    }
+
     public static ClientV2.BuildStatus getBuildStatus() {
         return BUILD_STATUS;
     }
@@ -542,13 +548,19 @@ public class GlobalConfiguration extends Part {
                 "Folia's portaling rewrite makes the world loading screen not display on the client properly, and",
                 "instead shows an empty void. With this enabled, Canvas will display the proper world loading screen"
             );
+        option("allowUnsafeEndPortalTeleportation")
+            .docs(
+                "Legacy Canvas alias for Paper's unsupported-settings.allow-unsafe-end-portal-teleportation.",
+                "Enables the upstream safe source-side falling-block continuation for End portal duplication.",
+                "It no longer enables the former direct async teleport and force-tick behavior."
+            );
         option("cacheMinecraft2BukkitEntityTypeConversion").docs("Whether to cache expensive CraftEntityType#minecraftToBukkit call");
         option("tileEntitySnapshotCreation").docs("Enables creation of tile entity snapshots on retrieving blockstates");
     }
 
     public String serverModName = ServerBuildInfo.buildInfo().brandName();
-
     public boolean displayWorldLoadScreenForCrossRegionTransfers = true;
+    public boolean allowUnsafeEndPortalTeleportation = false;
 
     public boolean cacheMinecraft2BukkitEntityTypeConversion = false;
     public boolean tileEntitySnapshotCreation = false;
