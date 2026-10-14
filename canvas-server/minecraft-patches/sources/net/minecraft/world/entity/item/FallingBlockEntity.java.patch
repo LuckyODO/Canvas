@@ -1,6 +1,6 @@
 --- a/net/minecraft/world/entity/item/FallingBlockEntity.java
 +++ b/net/minecraft/world/entity/item/FallingBlockEntity.java
-@@ -282,7 +_,7 @@
+@@ -288,7 +_,7 @@
          }
          // Paper end - Configurable falling blocks height nerf
          if (
@@ -9,7 +9,7 @@
                  && this.portalProcess != null
                  && this.portalProcess.isSamePortal((net.minecraft.world.level.block.Portal) net.minecraft.world.level.block.Blocks.END_PORTAL)
                  && this.handlePortal()
-@@ -307,9 +_,7 @@
+@@ -313,9 +_,7 @@
          if (
              type != net.minecraft.world.entity.Entity.PortalType.END
                  || !fromOrToEnd

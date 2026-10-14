@@ -1,6 +1,6 @@
 --- a/net/minecraft/world/level/block/entity/SculkCatalystBlockEntity.java
 +++ b/net/minecraft/world/level/block/entity/SculkCatalystBlockEntity.java
-@@ -127,7 +_,8 @@
+@@ -126,7 +_,8 @@
          }
  
          private void tryAwardItSpreadsAdvancement(final Level level, final LivingEntity mob) {

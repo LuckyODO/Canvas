@@ -1,6 +1,6 @@
 --- a/net/minecraft/world/entity/projectile/arrow/AbstractArrow.java
 +++ b/net/minecraft/world/entity/projectile/arrow/AbstractArrow.java
-@@ -276,7 +_,7 @@
+@@ -274,7 +_,7 @@
                      .clipIncludingBorder(
                          new ClipContext(originalPosition, originalPosition.add(movement), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this)
                      );
@@ -9,7 +9,7 @@
              } else {
                  this.setPos(originalPosition.add(movement));
                  this.applyEffectsFromBlocks();
-@@ -299,7 +_,7 @@
+@@ -297,7 +_,7 @@
          return 0.99F;
      }
  
@@ -18,7 +18,7 @@
          while (this.isAlive()) {
              Vec3 initialPosition = this.position();
              ArrayList<EntityHitResult> entitiesHit = new ArrayList<>(this.findHitEntities(initialPosition, blockHitResult.getLocation()));
-@@ -309,7 +_,7 @@
+@@ -307,7 +_,7 @@
              this.setPos(nextLocation);
              this.applyEffectsFromBlocks(initialPosition, nextLocation);
              if (this.portalProcess != null && this.portalProcess.isInsidePortalThisTick()) {
@@ -27,7 +27,7 @@
              }
  
              if (entitiesHit.isEmpty()) {
-@@ -327,6 +_,7 @@
+@@ -325,6 +_,7 @@
                  break;
              }
          }

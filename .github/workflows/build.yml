@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - dev/26.3
 
 permissions:
   contents: read
@@ -42,6 +43,9 @@ jobs:
           chmod +x ./gradlew
           ./gradlew --no-daemon applyAllPatches
           ./gradlew --no-daemon createPaperclipJar
+
+      - name: Test portal behavior
+        run: ./gradlew --no-daemon :canvas-server:test --tests io.canvasmc.canvas.PortalMomentumTestSuite
 
       - name: Upload jar
         uses: actions/upload-artifact@v4
