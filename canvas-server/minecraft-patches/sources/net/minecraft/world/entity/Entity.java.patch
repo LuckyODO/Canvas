@@ -12,7 +12,7 @@
  
      public void inactiveTick() {
      }
-@@ -977,7 +_,7 @@
+@@ -983,7 +_,7 @@
          }
  
          // if (this instanceof ServerPlayer) this.handlePortal(); // CraftBukkit - Moved up to postTick // Folia - region threading - ONLY allow in postTick()
@@ -21,7 +21,7 @@
              this.spawnSprintParticle();
          }
  
-@@ -1012,7 +_,16 @@
+@@ -1018,7 +_,16 @@
  
          this.checkBelowWorld();
          if (!this.level().isClientSide()) {
@@ -38,7 +38,7 @@
          }
  
          this.firstTick = false;
-@@ -1945,6 +_,11 @@
+@@ -1951,6 +_,11 @@
          boolean debugEntityBlockIntersections = this.level instanceof ServerLevel serverLevel
              && serverLevel.getServer().debugSubscribers().hasAnySubscriberFor(DebugSubscriptions.ENTITY_BLOCK_INTERSECTIONS);
          AtomicInteger iterations = new AtomicInteger();
@@ -50,7 +50,7 @@
          BlockGetter.forEachBlockIntersectedBetween(
              from,
              to,
-@@ -1958,13 +_,25 @@
+@@ -1964,13 +_,25 @@
                      return false;
                  }
  
@@ -82,7 +82,7 @@
                  if (state.isAir()) {
                      if (debugEntityBlockIntersections) {
                          this.debugBlockIntersection((ServerLevel)this.level(), blockIntersection.immutable(), false, false);
-@@ -1975,7 +_,7 @@
+@@ -1981,7 +_,7 @@
                      VoxelShape intersectShape = state.getEntityInsideCollisionShape(this.level(), blockIntersection, this);
                      boolean insideBlock = intersectShape == Shapes.block()
                          || this.collidedWithShapeMovingFrom(from, to, intersectShape.move(new Vec3(blockIntersection)).toAabbs());
@@ -91,7 +91,7 @@
                      if ((insideBlock || insideFluid) && visitedBlocks.add(blockIntersection.asLong())) {
                          if (insideBlock) {
                              try {
-@@ -2026,6 +_,7 @@
+@@ -2032,6 +_,7 @@
      }
  
      public boolean collidedWithFluid(final FluidState fluidState, final BlockPos blockPos, final Vec3 from, final Vec3 to) {
@@ -99,7 +99,7 @@
          AABB fluidAABB = fluidState.getAABB(this.level(), blockPos);
          return fluidAABB != null && this.collidedWithShapeMovingFrom(from, to, List.of(fluidAABB));
      }
-@@ -2320,6 +_,7 @@
+@@ -2326,6 +_,7 @@
  
          float yt = Mth.floor(this.getY());
  
@@ -107,7 +107,7 @@
          for (int i = 0; i < 1.0F + this.dimensions.width() * 20.0F; i++) {
              double xo = (this.random.nextDouble() * 2.0 - 1.0) * this.dimensions.width();
              double zo = (this.random.nextDouble() * 2.0 - 1.0) * this.dimensions.width();
-@@ -2334,6 +_,7 @@
+@@ -2340,6 +_,7 @@
              double zo = (this.random.nextDouble() * 2.0 - 1.0) * this.dimensions.width();
              this.level().addParticle(ParticleTypes.SPLASH, this.getX() + xo, yt + 1.0F, this.getZ() + zo, movement.x, movement.y, movement.z);
          }
@@ -115,7 +115,7 @@
  
          this.gameEvent(GameEvent.SPLASH);
      }
-@@ -2514,8 +_,8 @@
+@@ -2520,8 +_,8 @@
      }
  
      public void push(final Entity entity) {
@@ -125,7 +125,7 @@
                  if (this.level.paperConfig().collisions.onlyPlayersCollide && !(entity instanceof ServerPlayer || this instanceof ServerPlayer)) return; // Paper - Collision option for requiring a player participant
                  // Paper start - Add EntityCollideWithEntity Event
                  if (io.papermc.paper.event.entity.EntityCollideWithEntityEvent.getHandlerList().getRegisteredListeners().length != 0 &&
-@@ -3745,6 +_,7 @@
+@@ -3757,6 +_,7 @@
          } else {
              if (this.portalProcess == null || !this.portalProcess.isSamePortal(portal)) {
                  this.portalProcess = new PortalProcessor(portal, pos.immutable());
@@ -133,7 +133,7 @@
              } else if (!this.portalProcess.isInsidePortalThisTick()) {
                  this.portalProcess.updateEntryPosition(pos.immutable());
                  this.portalProcess.setAsInsidePortalThisTick(true);
-@@ -3753,15 +_,51 @@
+@@ -3765,15 +_,51 @@
      }
  
      public boolean handlePortal() { // Folia - region threading - ret type -> boolean
@@ -194,7 +194,7 @@
              }
          }
          return false; // Folia - region threading
-@@ -4052,6 +_,7 @@
+@@ -4064,6 +_,7 @@
      }
  
      protected static void sendBubbleColumnParticles(final Level level, final BlockPos pos) {
@@ -202,7 +202,7 @@
          if (level instanceof ServerLevel serverLevel) {
              RandomSource random = level.getRandom();
  
-@@ -4648,13 +_,31 @@
+@@ -4660,13 +_,31 @@
      }
  
      protected final void transform(final TeleportTransition telpeort) {
@@ -235,7 +235,7 @@
  
      protected void transform(
          final @Nullable Vec3 pos, final @Nullable Float yaw, final @Nullable Float pitch, final @Nullable Vec3 velocity
-@@ -4695,9 +_,14 @@
+@@ -4707,9 +_,14 @@
          @Nullable
          final Vec3 velocity
      ) {
@@ -253,7 +253,7 @@
          copy.restoreFrom(this);
          copy.transform(pos, yaw, pitch, velocity);
          // vanilla code used to call remove _after_ copying, and some stuff is required to be after copy - so add hook here
-@@ -4754,6 +_,9 @@
+@@ -4766,6 +_,9 @@
          if (!this.canTeleportAsync()) {
              throw new TeleportValidationException("Entity not able to teleport async. Is the entity removed or in a bed?");
          }
@@ -263,7 +263,7 @@
          this.getBukkitEntity(); // force bukkit entity to be created before TPing
  
          if (destination.canvas$unloadTicket.isPresent()) {
-@@ -4766,6 +_,9 @@
+@@ -4778,6 +_,9 @@
                  if (!entity.canTeleportAsync()) {
                      throw new TeleportValidationException("Indirect passenger not able to teleport async. Is the passenger removed or dead?");
                  }
@@ -273,7 +273,7 @@
                  entity.getBukkitEntity(); // force bukkit entity to be created before TPing
              }
          } else {
-@@ -5172,7 +_,7 @@
+@@ -5185,7 +_,7 @@
                          spawnBlockPos, 16, // load 16 blocks to be safe from block physics
                          ca.spottedleaf.concurrentutil.util.Priority.HIGH,
                          (_) -> {
@@ -282,7 +282,7 @@
  
                              // in EndPortalBlock#getPortalDestination, "spawnBlockPos" is END_SPAWN_POINT,
                              // where EndPlatformFeature#createEndPlatform is passed "spawnBlockPos#below".
-@@ -5192,7 +_,7 @@
+@@ -5205,7 +_,7 @@
                                  new TeleportTransition(
                                      destination, placementTarget, Vec3.ZERO, Direction.WEST.toYRot(), 0.0f,
                                      false, false,
@@ -291,7 +291,7 @@
                                      TeleportTransition.PLAY_PORTAL_SOUND.then(TeleportTransition.PLACE_PORTAL_TICKET),
                                      org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.END_PORTAL,
                                      TeleportTransition.PassengerTeleportationMode.POSITION_RIDER
-@@ -5263,9 +_,15 @@
+@@ -5276,9 +_,15 @@
                          // no portal could be created
                          if (portal == null) {
                              portalInfoCompletable.complete(
@@ -309,17 +309,17 @@
                              );
                              return;
                          }
-@@ -5382,6 +_,9 @@
+@@ -5397,6 +_,9 @@
          if (!this.canTeleportAsync()) {
              throw new TeleportValidationException("Entity not able to teleport async. Is the entity removed or in a bed?");
          }
 +        if (to != null && to != this.level() && !(this instanceof ServerPlayer) && !this.getType().canSpawn(to)) {
 +            throw new TeleportValidationException("Entity type " + EntityType.getKey(this.getType()) + " cannot be created in the destination world");
 +        }
+ 
          if (considerPassengers) {
              for (final Entity entity : this.passengers) {
-                 entity.canvas$ensureCanPortalAsync(to, true, true);
-@@ -5448,6 +_,18 @@
+@@ -5469,6 +_,18 @@
          // set the portal transfer continuation for falling block ticks for portal transfers
          final java.lang.Runnable portalTransferContinuation =
              this.canvas$preparePortalTransferContinuation(originWorld, finalDestination, type);
@@ -338,7 +338,7 @@
  
          final Vec3 initialPosition = this.position();
          final ChunkPos initialPositionChunk = new ChunkPos(
-@@ -5486,7 +_,12 @@
+@@ -5507,7 +_,12 @@
              node.root.prePortalLogic(originWorld, destination, type);
          }
  
@@ -351,7 +351,7 @@
              // we will update pos/rot/speed later
              node.root = node.root.transformForAsyncTeleport(destination, null, null, null, null);
              // set portal cooldown
-@@ -5497,6 +_,7 @@
+@@ -5518,6 +_,7 @@
                  entityPlayer.sendRespawnClientbound(false);
              }
          }
@@ -359,7 +359,7 @@
  
          if (portalTransferContinuation != null) {
              try {
-@@ -5549,8 +_,12 @@
+@@ -5570,8 +_,12 @@
              ));
  
              // adjust passenger tree to final pos/rot/speed
@@ -374,7 +374,7 @@
              }
  
              // place
-@@ -5563,8 +_,8 @@
+@@ -5584,8 +_,8 @@
                      }
  
                      clearRegionTransferState();
