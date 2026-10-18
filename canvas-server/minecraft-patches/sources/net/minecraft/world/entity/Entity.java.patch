@@ -273,7 +273,7 @@
                  entity.getBukkitEntity(); // force bukkit entity to be created before TPing
              }
          } else {
-@@ -5185,7 +_,7 @@
+@@ -5193,7 +_,7 @@
                          spawnBlockPos, 16, // load 16 blocks to be safe from block physics
                          ca.spottedleaf.concurrentutil.util.Priority.HIGH,
                          (_) -> {
@@ -282,7 +282,7 @@
  
                              // in EndPortalBlock#getPortalDestination, "spawnBlockPos" is END_SPAWN_POINT,
                              // where EndPlatformFeature#createEndPlatform is passed "spawnBlockPos#below".
-@@ -5205,7 +_,7 @@
+@@ -5213,7 +_,7 @@
                                  new TeleportTransition(
                                      destination, placementTarget, Vec3.ZERO, Direction.WEST.toYRot(), 0.0f,
                                      false, false,
@@ -291,7 +291,7 @@
                                      TeleportTransition.PLAY_PORTAL_SOUND.then(TeleportTransition.PLACE_PORTAL_TICKET),
                                      org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.END_PORTAL,
                                      TeleportTransition.PassengerTeleportationMode.POSITION_RIDER
-@@ -5276,9 +_,15 @@
+@@ -5284,9 +_,15 @@
                          // no portal could be created
                          if (portal == null) {
                              portalInfoCompletable.complete(
@@ -309,7 +309,7 @@
                              );
                              return;
                          }
-@@ -5397,6 +_,9 @@
+@@ -5405,6 +_,9 @@
          if (!this.canTeleportAsync()) {
              throw new TeleportValidationException("Entity not able to teleport async. Is the entity removed or in a bed?");
          }
@@ -319,7 +319,7 @@
  
          if (considerPassengers) {
              for (final Entity entity : this.passengers) {
-@@ -5469,6 +_,18 @@
+@@ -5477,6 +_,18 @@
          // set the portal transfer continuation for falling block ticks for portal transfers
          final java.lang.Runnable portalTransferContinuation =
              this.canvas$preparePortalTransferContinuation(originWorld, finalDestination, type);
@@ -338,7 +338,7 @@
  
          final Vec3 initialPosition = this.position();
          final ChunkPos initialPositionChunk = new ChunkPos(
-@@ -5507,7 +_,12 @@
+@@ -5515,7 +_,12 @@
              node.root.prePortalLogic(originWorld, destination, type);
          }
  
@@ -351,7 +351,7 @@
              // we will update pos/rot/speed later
              node.root = node.root.transformForAsyncTeleport(destination, null, null, null, null);
              // set portal cooldown
-@@ -5518,6 +_,7 @@
+@@ -5526,6 +_,7 @@
                  entityPlayer.sendRespawnClientbound(false);
              }
          }
@@ -359,7 +359,7 @@
  
          if (portalTransferContinuation != null) {
              try {
-@@ -5570,8 +_,12 @@
+@@ -5578,8 +_,12 @@
              ));
  
              // adjust passenger tree to final pos/rot/speed
@@ -374,7 +374,7 @@
              }
  
              // place
-@@ -5584,8 +_,8 @@
+@@ -5592,8 +_,8 @@
                      }
  
                      clearRegionTransferState();
